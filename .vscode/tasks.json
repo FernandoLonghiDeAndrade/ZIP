@@ -2,9 +2,23 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build",
+            "label": "setup",
             "type": "shell",
-            "command": "cd build 2>nul || mkdir build && cd build && cmake .. && cmake --build .",
+            "command": "if not exist build mkdir build && cd build && if not exist CMakeCache.txt cmake ..",
+            "problemMatcher": []
+        },
+        {
+            "label": "build-client",
+            "type": "shell",
+            "command": "cmake --build build --target client",
+            "dependsOn": "setup",
+            "problemMatcher": []
+        },
+        {
+            "label": "build-server",
+            "type": "shell",
+            "command": "cmake --build build --target server",
+            "dependsOn": "setup",
             "problemMatcher": []
         }
     ]

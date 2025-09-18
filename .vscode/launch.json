@@ -2,21 +2,40 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Build and Run (Windows)",
+            "name": "Run Server (Windows)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/ZIP.exe",
+            "program": "${workspaceFolder}/build/server.exe",
             "cwd": "${workspaceFolder}/build",
-            "preLaunchTask": "build",
+            "preLaunchTask": "build-server",
             "externalConsole": false
         },
         {
-            "name": "Build and Run (Linux/Mac)",
+            "name": "Run Client (Windows)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/ZIP",
+            "program": "${workspaceFolder}/build/client.exe",
             "cwd": "${workspaceFolder}/build",
-            "preLaunchTask": "build",
+            "preLaunchTask": "build-client",
+            "externalConsole": false
+        },
+        {
+            "name": "Run Server (Linux/Mac)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/server",
+            "cwd": "${workspaceFolder}/build",
+            "preLaunchTask": "build-server",
+            "MIMode": "gdb",
+            "externalConsole": false
+        },
+        {
+            "name": "Run Client (Linux/Mac)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/client",
+            "cwd": "${workspaceFolder}/build",
+            "preLaunchTask": "build-client",
             "MIMode": "gdb",
             "externalConsole": false
         }
