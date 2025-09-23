@@ -2,11 +2,16 @@
 
 ## Prerequisites
 
-- [VS Code](https://code.visualstudio.com/)
-- Extensions: [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) and [CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools)
 - [CMake](https://cmake.org/download) installed
 
+## Recommended IDE Setup
+
+- [VS Code](https://code.visualstudio.com/)
+- Extensions: [C/C++](vscode:extension/ms-vscode.cpptools) and [CMake Tools](vscode:extension/ms-vscode.cmake-tools)
+
 ## Build and Run Methods
+
+*Methods 1 and 2 require VS Code with the recommended extensions. Method 3 works with any terminal or IDE.*
 
 ### 1. Launch Button (Recommended)
 
@@ -20,10 +25,10 @@
 
 ### 3. Terminal
 
-**Setup (first time only):**
+**Setup (first time only, run in project root):**
 
 ```sh
-mkdir build && cd build && cmake ..
+~/ZIP$ mkdir build && cd build && cmake ..
 ```
 
 **Build and run (in the build folder):**
@@ -32,20 +37,20 @@ mkdir build && cd build && cmake ..
 # On Windows:
 
 # Server:
-cmake --build . && server.exe
+~\ZIP\build> cmake --build . && server.exe
 
 # Client:
-cmake --build . && client.exe
+~\ZIP\build> cmake --build . && client.exe
 ```
 
 ```sh
 # On Linux/Mac:
 
 # Server:
-cmake --build . && ./server
+~/ZIP/build$ cmake --build . && ./server
 
 # Client:
-cmake --build . && ./server
+~/ZIP/build$ cmake --build . && ./client
 ```
 
 - The **setup** command creates the `build` folder, enters it, and runs CMake to configure the project.
