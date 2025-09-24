@@ -1,6 +1,18 @@
+#include "request.h"
+#include "response.h"
+#define DESC 1
+#define REQ 2
+#define DESC_ACK 3
+#define REQ_ACK 4
+
 class Packet {
 public:
-    Packet(bool seq_number, char data[256]);
-    int seq_number = -1;
-    char data[256];
+    Packet(int seq, Request r) : type(REQ), seq_number(seq) { data.req = r; }
+    Packet(int seq, Response r) : type(REQ_ACK), seq_number(seq) { data.resp = r; }
+    int type;
+    int seq_number = 0;
+    union {
+        Request req;
+        Response resp;
+    } data;
 };
