@@ -1,10 +1,11 @@
 #include <netinet/in.h>
 
-class RDTReceiver {
+class RDTServer {
 public:
-    RDTReceiver();
-    ~RDTReceiver();
-    bool receive(char data[]);
+    RDTServer(int port);
+    ~RDTServer();
+    Request get_request();
+    void send_response(Response resp);
 private:
     int sockfd;
     bool expected_seq_number = 0;

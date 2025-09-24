@@ -16,22 +16,18 @@
 #include "request.h"
 #include "response.h"
 
-#define PORT 4000
-
-
-RDTClient::RDTClient(std::string server_ip) {	
+RDTClient::RDTClient(std::string server_ip, int port) {
 
 	server = gethostbyname(server_ip.c_str());
 	if (server == NULL) {
         fprintf(stderr,"RDT SENDER ERROR, host not found\n");
         exit(0);
-    }	
-	
+    }
 	if ((this->sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
 		printf("ERROR opening socket");
 	
 	serv_addr.sin_family = AF_INET;     
-	serv_addr.sin_port = htons(PORT);    
+	serv_addr.sin_port = htons(port);    
 	serv_addr.sin_addr = *((struct in_addr *)server->h_addr);
 	bzero(&(serv_addr.sin_zero), 8);  
 
