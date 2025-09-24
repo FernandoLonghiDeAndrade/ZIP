@@ -34,19 +34,43 @@ RDTServer::~RDTServer() {
 }
 
 Request RDTServer::get_request() {
-	Packet packet(NULL, Request());
-	socklen_t clilen = sizeof(this->cli_addr);
+
+	Packet request_packet(NULL, Request());
+	Request req = Request();
+	struct sockaddr_in client_addr;
+	socklen_t client_addr_len = sizeof(client_addr);
 	int n = -1;
-	while (n < 0) {
-		n = recvfrom(this->sockfd, &packet, sizeof(packet), 0, (struct sockaddr *) &this->cli_addr, &clilen);
+
+	while (true) {
+
+		// Read a packet from the socket
+		n = recvfrom(this->sockfd, &request_packet, sizeof(request_packet), 0, (struct sockaddr *) &client_addr, &client_addr_len);
+		int32_t client_ip = client_addr.sin_addr.s_addr;
+		// If the packet is a retransmission, resend the corresponding response
+		if (n > 0) {
+			if (is_retransmission(request_packet, client_ip)) {
+				send_response(this->request_map[client_ip].data.resp);
+			} else {
+				// Otherwise, store the packet in the retransmission map and return the request to the application
+				this->request_map[client_ip] = request_packet;
+				return request_packet.data.req;
+			}
+		}
 	}
-	return packet.data.req;
+
+	return req;
+
 }
 
-void RDTServer::send_response(Response resp) {
-	Packet packet(resp.seq_number, resp);
-	socklen_t clilen = sizeof(this->cli_addr);
-	int n = sendto(this->sockfd, &packet, sizeof(packet), 0, (struct sockaddr *) &this->cli_addr, clilen);
-	if (n < 0) 
-		printf("ERROR sending response\n");
+bool RDTServer::is_retransmission(Packet packet, in_addr_t source_addr) {
+	if (this->request_map.find(source_addr) == this->request_map.end())
+		return false;
+	else 
+		return (this->request_map[source_addr].seq_number == packet.seq_number);
+}
+
+void RDTServer::send_response(Response resp, int32_t dest_addr) {
+	int seq_number = this->request_map[dest_addr].seq_number;
+	Packet packet(seq_number, resp);
+	sendto(this->sockfd, &packet, sizeof(packet), 0, (struct sockaddr *) &dest_addr, sizeof(dest_addr));
 }

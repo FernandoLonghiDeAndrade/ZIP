@@ -1,5 +1,7 @@
 #pragma once
 #include "../include/packet.h"
+#include "request.h"
+#include "response.h"
 #include <netinet/in.h>
 #include <netdb.h>
 #include <string>

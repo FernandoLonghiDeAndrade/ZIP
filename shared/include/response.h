@@ -1,5 +1,3 @@
-class Response {
-public:
-    int seq_number;
+struct Response {
     int new_balance;
 };
