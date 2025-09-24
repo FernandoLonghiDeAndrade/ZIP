@@ -1,5 +1,7 @@
 #pragma once
 #include "../include/packet.h"
+#include <netinet/in.h>
+#include <netdb.h>
 
 class RDTSender {
 public:
