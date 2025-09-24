@@ -8,7 +8,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include "../include/rdt_sender.h"
+#include <chrono> 
+#include <thread> 
+#include <iostream>
+#include "rdt_sender.h"
 
 #define PORT 4000
 
@@ -28,25 +31,52 @@ RDTSender::RDTSender() {
 	serv_addr.sin_addr = *((struct in_addr *)server->h_addr);
 	bzero(&(serv_addr.sin_zero), 8);  
 
-};
+}
 
 void RDTSender::send(char data[]) {
 
-	bzero(this->buffer, 256);
-	memcpy(this->buffer, data, strlen(data));
+	Packet send_packet = Packet(this->seq_number, data);
+	Packet ack_packet = Packet(-1, (char *)"");
 
-	int n = sendto(this->sockfd, this->buffer, strlen(this->buffer), 0, (const struct sockaddr *) &this->serv_addr, sizeof(struct sockaddr_in));
-	if (n < 0) 
-		printf("ERROR sendto");
-	
-	unsigned int length = sizeof(struct sockaddr_in);
-	n = recvfrom(sockfd, buffer, 256, 0, (struct sockaddr *) &from, &length);
-	if (n < 0)
-		printf("ERROR recvfrom");
+	bool timeout = true;
+	bool invalid_ack = true;
 
-	printf("Got an ack: %s\n", buffer);
-};
+	while (timeout || invalid_ack) {
+
+		sendto(this->sockfd, &send_packet, sizeof(send_packet), 0, (const struct sockaddr *) &this->serv_addr, sizeof(struct sockaddr_in));
+		auto start = std::chrono::high_resolution_clock::now();
+
+		while (1) {
+
+			// Receive ack
+			socklen_t fromlen = sizeof(this->from);
+			recvfrom(this->sockfd, &ack_packet, sizeof(ack_packet), MSG_DONTWAIT, (struct sockaddr *) &this->from, &fromlen);
+			if (is_valid_ack(ack_packet)) {
+				invalid_ack = false;
+				timeout = false;
+				this->seq_number = (this->seq_number == 0) ? 1 : 0;
+				break;
+			}
+
+			// Check timeout
+			auto now = std::chrono::high_resolution_clock::now();
+			auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+			if (elapsed > 1) {
+				timeout = true;
+				std::cout << "Timeout, resending packet..." << std::endl;
+				break;
+			}
+		}
+ 
+	}
+}
+
+bool RDTSender::is_valid_ack(Packet ack_packet) {
+	bool seq_number_matches = ack_packet.seq_number == this->seq_number;
+	bool data_is_ack = strcmp(ack_packet.data, "ACK") == 0;
+	return seq_number_matches && data_is_ack;
+}
 
 RDTSender::~RDTSender() {
     close(sockfd);
-};
+}
