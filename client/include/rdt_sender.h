@@ -6,10 +6,10 @@
 #include <netdb.h>
 #include <string>
 
-class RDTClient {
+class RDTSender {
 public:
-    RDTClient(std::string server_ip, int port);
-    ~RDTClient();
+    RDTSender(std::string server_ip, int port);
+    ~RDTSender();
     Response request(Request req);
     void set_port(int port) { this->serv_addr.sin_port = htons(port); }
 private:
@@ -23,4 +23,4 @@ private:
     struct sockaddr_in serv_addr, from;
 };
 
-RDTClient client = RDTClient("localhost", 4000);
+RDTSender sender = RDTSender("localhost", 4000);

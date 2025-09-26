@@ -11,9 +11,9 @@
 #include <chrono> 
 #include <thread> 
 #include <iostream>
-#include "rdt_client.h"
+#include "rdt_sender.h"
 
-RDTClient::RDTClient(std::string server_ip, int port) {
+RDTSender::RDTSender(std::string server_ip, int port) {
 
 	server = gethostbyname(server_ip.c_str());
 	if (server == NULL) {
@@ -30,7 +30,7 @@ RDTClient::RDTClient(std::string server_ip, int port) {
 
 }
 
-Response RDTClient::request(Request req) {
+Response RDTSender::request(Request req) {
 
 	Packet request_packet = Packet(this->seq_number, req);
 	Packet response_packet = Packet(-1, Response());
@@ -40,8 +40,6 @@ Response RDTClient::request(Request req) {
 
 	this->send_packet(request_packet);
 	auto start = std::chrono::high_resolution_clock::now();
-
-	int32_t client_ip = inet_addr("127.0.0.1");
 
 	while (true) {
 
@@ -69,13 +67,13 @@ Response RDTClient::request(Request req) {
 	return resp;
 }
 
-void RDTClient::send_packet(Packet packet) {
+void RDTSender::send_packet(Packet packet) {
 	int n = sendto(this->sockfd, &packet, sizeof(packet), 0, (struct sockaddr *) &this->serv_addr, sizeof(struct sockaddr));
 	if (n < 0) 
 		printf("ERROR sending packet");
 }
 
-Packet RDTClient::receive_packet() {
+Packet RDTSender::receive_packet() {
 	Packet packet = Packet(-1, Response());
 	socklen_t fromlen = sizeof(this->from);
 	int n = recvfrom(this->sockfd, &packet, sizeof(packet), 0, (struct sockaddr *) &this->from, &fromlen);
@@ -84,12 +82,12 @@ Packet RDTClient::receive_packet() {
 	return packet;
 }
 
-bool RDTClient::is_ack(Packet ack_packet) {
+bool RDTSender::is_ack(Packet ack_packet) {
 	bool seq_number_matches = ack_packet.seq_number == this->seq_number;
 	bool data_is_ack = ack_packet.type == REQ_ACK;
 	return seq_number_matches && data_is_ack;
 }
 
-RDTClient::~RDTClient() {
+RDTSender::~RDTSender() {
     close(sockfd);
 }
