@@ -64,7 +64,7 @@ void ZIPClient::connect_to_server() {
     // Salva o endereço real do servidor da resposta
     this->server_ip = discovery_reply.server_ip;
     this->server_port = discovery_reply.server_port;
-
+    
     // Desabilita broadcast e conecta diretamente ao servidor
     int broadcast = 0;
     setsockopt(socket_fd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
@@ -111,11 +111,13 @@ void ZIPClient::send_request(const Request& req) {
 
 Reply ZIPClient::receive_reply() {
     Reply reply = Reply();
-
-    if (recvfrom(this->socket_fd, &reply, sizeof(reply), MSG_DONTWAIT, NULL, NULL) <= 0) {
+    struct sockaddr_in from;
+    socklen_t from_len = sizeof(from);
+    if (recvfrom(this->socket_fd, &reply, sizeof(reply), MSG_DONTWAIT, (struct sockaddr*)&from, &from_len) <= 0) {
         reply.seq_number = -1;
     }
-    
+    reply.server_ip = ntohl(from.sin_addr.s_addr);
+    reply.server_port = ntohs(from.sin_port);
     return reply;
 }
 

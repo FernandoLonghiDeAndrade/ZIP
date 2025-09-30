@@ -54,11 +54,8 @@ private:
     int32_t socket_fd; // Socket file descriptor
     struct sockaddr_in socket_addr; // Socket address structure
 
-    void process_request(const Request& req);
     Request wait_for_new_request();
     Request receive_request();
-    Reply gen_discovery_reply(const Request& req);
+    void process_request(const Request& req);
     void send_reply(const Reply& reply, int32_t client_addr, int16_t client_port);
-    struct sockaddr_in gen_addr(int16_t port);
-    uint32_t get_local_ip(); // Método para obter IP local do servidor
 };
