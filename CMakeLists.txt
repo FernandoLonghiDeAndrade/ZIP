@@ -2,12 +2,12 @@ cmake_minimum_required(VERSION 3.10)
 project(ZIP)
 
 # Shared
+file(GLOB_RECURSE SHARED_SRC shared/src/*.cpp)
 include_directories(shared/include)
 
 # Client
 file(GLOB_RECURSE CLIENT_SRC client/src/*.cpp)
 file(GLOB CLIENT_MAIN client/main.cpp)
-file(GLOB_RECURSE SHARED_SRC shared/src/*.cpp)
 include_directories(client/include)
 add_executable(client ${CLIENT_SRC} ${CLIENT_MAIN} ${SHARED_SRC})
 
