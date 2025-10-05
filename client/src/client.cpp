@@ -78,24 +78,25 @@ void Client::discover_server() {
     // Retry loop: send DISCOVERY every ACK_TIMEOUT_MS until server responds
     while (!has_server_address) {
         client_socket.send(&discovery_packet, sizeof(Packet), broadcast_addr);
-
-        // Non-blocking wait: allows retransmission if no response within timeout
-        std::this_thread::sleep_for(std::chrono::milliseconds(ACK_TIMEOUT_MS));
         
-        // Check if DISCOVERY_ACK arrived during sleep (non-blocking receive)
-        Packet response_packet;
-        struct sockaddr_in received_from_addr;
-        if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
-            if (response_packet.type == DISCOVERY_ACK) {
-                // Success: store server's address for future transactions
-                this->server_addr = received_from_addr;
-                this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
-                this->has_server_address = true;
-                PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
-                return;
+        // Non-blocking wait: allows retransmission if no response within timeout
+        auto start_time = std::chrono::steady_clock::now(); // Start timer
+        while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
+            // Check if DISCOVERY_ACK arrived (non-blocking receive)
+            Packet response_packet;
+            struct sockaddr_in received_from_addr;
+            if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
+                if (response_packet.type == DISCOVERY_ACK) {
+                    // Success: store server's address for future transactions
+                    this->server_addr = received_from_addr;
+                    this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
+                    this->has_server_address = true;
+                    PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
+                    return;
+                }
             }
         }
-        // If no response or wrong type, loop continues and retransmits
+        // If no response, loop continues and retransmits
     }
 }
 
@@ -111,17 +112,18 @@ void Client::connect_to_known_server() {
         client_socket.send(&discovery_packet, sizeof(Packet), server_addr);
         
         // Wait for DISCOVERY_ACK from the specific server IP
-        std::this_thread::sleep_for(std::chrono::milliseconds(ACK_TIMEOUT_MS));
-        
-        Packet response_packet;
-        struct sockaddr_in received_from_addr;
-        if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
-            if (response_packet.type == DISCOVERY_ACK) {
-                // Verify response came from expected server (could add IP validation here)
-                this->server_addr = received_from_addr;
-                this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
-                received_ack = true;
-                PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
+        auto start_time = std::chrono::steady_clock::now(); // Start timer
+        while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
+            Packet response_packet;
+            struct sockaddr_in received_from_addr;
+            if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
+                if (response_packet.type == DISCOVERY_ACK) {
+                    // Verify response came from expected server (could add IP validation here)
+                    this->server_addr = received_from_addr;
+                    this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
+                    received_ack = true;
+                    PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
+                }
             }
         }
         // If no response, loop continues and retransmits
