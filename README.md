@@ -24,6 +24,7 @@ ZIP/
 │
 ├── server/
 │   ├── include/
+│   │   ├── locked_map.h          # Thread-safe map with per-entry RW locks
 │   │   └── server.h              # Server class (multi-threaded request handling)
 │   ├── src/
 │   │   └── server.cpp            # Server implementation
@@ -31,7 +32,6 @@ ZIP/
 │
 ├── shared/
 │   ├── include/
-│   │   ├── locked_map.h          # Thread-safe map with per-entry RW locks
 │   │   ├── packet.h              # Protocol packet definitions
 │   │   ├── print_utils.h         # Formatted console output
 │   │   └── udp_socket.h          # Cross-platform UDP wrapper
@@ -133,7 +133,7 @@ Example:
 
 ## Key Components
 
-### LockedMap (`shared/include/locked_map.h`)
+### LockedMap (`server/include/locked_map.h`)
 
 Thread-safe map with **per-entry reader-writer locks**. Enables concurrent reads and exclusive writes per entry, preventing contention between different clients.
 
