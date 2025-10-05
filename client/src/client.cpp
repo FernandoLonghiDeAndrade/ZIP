@@ -4,13 +4,6 @@
 #include <sstream>
 #include <chrono>
 
-#ifdef _WIN32
-    #include <winsock2.h>
-    #include <ws2tcpip.h>
-#else
-    #include <arpa/inet.h>
-#endif
-
 // ===== Constructor =====
 
 Client::Client(uint16_t server_port, const std::string& server_ip)
@@ -20,14 +13,9 @@ Client::Client(uint16_t server_port, const std::string& server_ip)
     
     // Pre-configure server address if known IP provided (skips broadcast discovery)
     if (!server_ip.empty()) {
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(server_port);
-        
-        if (inet_pton(AF_INET, server_ip.c_str(), &server_addr.sin_addr) == 1) {
-            has_server_address = true; // Will use connect_to_known_server() instead of discover_server()
-        } else {
-            has_server_address = false; // Invalid IP format, fall back to broadcast discovery
-        }
+        server_addr = UDPSocket::create_address(server_ip, server_port);
+        // Validate if address was created successfully (check sin_addr)
+        has_server_address = (server_addr.sin_addr.s_addr != 0);
     }
 }
 
@@ -70,10 +58,7 @@ void Client::discover_server() {
     discovery_packet.request_id = 0;
     
     // Broadcast to all devices on local network (255.255.255.255)
-    struct sockaddr_in broadcast_addr;
-    broadcast_addr.sin_family = AF_INET;
-    broadcast_addr.sin_port = htons(server_port);
-    inet_pton(AF_INET, "255.255.255.255", &broadcast_addr.sin_addr);
+    struct sockaddr_in broadcast_addr = UDPSocket::create_broadcast_address(server_port);
 
     // Retry loop: send DISCOVERY every ACK_TIMEOUT_MS until server responds
     while (!has_server_address) {
@@ -152,14 +137,14 @@ void Client::run_user_input_loop() {
         }
 
         // Convert string IP to binary format (network byte order)
-        struct in_addr dest_addr_struct;
-        if (inet_pton(AF_INET, ip_str.c_str(), &dest_addr_struct) != 1) {
-            std::cerr << "Invalid destination IP address format. Expected format: xxx.xxx.xxx.xxx\n\n";
+        uint32_t dest_ip = UDPSocket::string_to_ip(ip_str);
+        if (dest_ip == 0) {
+            std::cerr << "Invalid destination IP address format.\n\n";
             continue;
         }
 
         // Create packet and send with stop-and-wait retransmission
-        Packet request_packet = Packet::create_request(TRANSACTION_REQUEST, next_request_id, dest_addr_struct.s_addr, value);
+        Packet request_packet = Packet::create_request(TRANSACTION_REQUEST, next_request_id, dest_ip, value);
         send_request(request_packet); // Blocks until ACK received or send fails
 
         next_request_id++; // Increment for next transaction (wraps around at UINT32_MAX)

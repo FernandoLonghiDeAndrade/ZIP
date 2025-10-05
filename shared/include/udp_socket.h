@@ -1,15 +1,17 @@
 #pragma once
 #include <cstdint>
 #include <mutex>
+#include <string>
 
-// Platform-specific includes
 #ifdef _WIN32
     #include <winsock2.h>
-    #pragma comment(lib, "ws2_32.lib")
-    typedef int socklen_t;
+    typedef SOCKET socket_t;
+    #define INVALID_SOCKET_VALUE INVALID_SOCKET
 #else
     #include <netinet/in.h>
     #include <sys/socket.h>
+    typedef int socket_t;
+    #define INVALID_SOCKET_VALUE -1
 #endif
 
 /**
@@ -122,12 +124,52 @@ public:
      */
     void close_socket();
 
+    /**
+     * @brief ### Creates a sockaddr_in from IP string and port.
+     * 
+     * Converts human-readable IP (dotted-decimal) to binary format.
+     * Port is specified in host byte order, converted to network byte order.
+     * 
+     * @param ip String representation of IPv4 address (e.g. "192.168.1.1").
+     * @param port Port number in host byte order.
+     * @return sockaddr_in structure with sin_family, sin_addr, and sin_port set.
+     *   Note: Does not validate IP format (inet_pton does that).
+     */
+    static struct sockaddr_in create_address(const std::string& ip, uint16_t port);
+
+    /**
+     * @brief ### Creates a sockaddr_in for broadcast address on given port.
+     * 
+     * Sets IP to 255.255.255.255 (limited broadcast).
+     * Port is specified in host byte order, converted to network byte order.
+     * 
+     * @param port Port number in host byte order.
+     * @return sockaddr_in structure with sin_family, sin_addr, and sin_port set.
+     */
+    static struct sockaddr_in create_broadcast_address(uint16_t port);
+
+    /**
+     * @brief ### Converts dotted-decimal IP string to 32-bit network byte order.
+     * 
+     * Uses inet_pton to parse string and convert to binary format.
+     * 
+     * @param ip_str String representation of IPv4 address (e.g. "192.168.1.1").
+     * @return 32-bit IP address in network byte order (host-to-network).
+     */
+    static uint32_t string_to_ip(const std::string& ip_str);
+
+    /**
+     * @brief ### Converts 32-bit IP address to dotted-decimal string.
+     * 
+     * Uses inet_ntop to convert binary format to human-readable string.
+     * 
+     * @param ip_network_byte_order IP address in network byte order.
+     * @return String representation in dotted notation (e.g., "192.168.1.1").
+     */
+    static std::string ip_to_string(uint32_t ip_network_byte_order);
+
 private:
-#ifdef _WIN32
-    SOCKET sock_fd = INVALID_SOCKET;    ///< Windows socket handle (INVALID_SOCKET = not initialized)
-#else
-    int32_t sock_fd = -1;               ///< POSIX socket file descriptor (-1 = not initialized)
-#endif
+    socket_t sock_fd = INVALID_SOCKET_VALUE;  ///< Socket handle (platform-independent)
     
     mutable std::mutex send_mutex;      ///< Serializes send() calls (allows one send at a time)
     mutable std::mutex receive_mutex;   ///< Serializes receive() calls (allows one receive at a time)

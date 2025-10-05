@@ -2,13 +2,6 @@
 #include "packet.h"
 #include <cstdint>
 
-// Platform-specific includes for network address structures
-#ifdef _WIN32
-    #include <winsock2.h>
-#else
-    #include <netinet/in.h>
-#endif
-
 /**
  * @brief ### Utility functions for formatted console output with timestamps.
  * 
