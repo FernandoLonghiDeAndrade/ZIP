@@ -108,7 +108,6 @@ void Server::handle_transaction(const Packet& packet, const struct sockaddr_in& 
     auto src_opt = clients.read(src_client_ip);
     if (!src_opt) {
         // Source not registered: should never happen if client followed discovery protocol
-        PrintUtils::print_request(src_client_ip, packet, true, s_num_transactions, s_total_transferred, s_total_balance);
         Packet reply_packet = Packet::create_reply(ERROR_ACK, packet.request_id, 0);
         server_socket.send(&reply_packet, sizeof(reply_packet), client_addr);
         return;
