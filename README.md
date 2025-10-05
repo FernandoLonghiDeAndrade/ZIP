@@ -1,6 +1,6 @@
-# **ZIP (Zero-latency Instant Payment)**
+# **ZIP (Zero-cost Instant Payment)**
 
-A multi-threaded UDP-based transaction system demonstrating concurrent programming concepts: thread synchronization, reader-writer locks, and deadlock prevention.
+A multi-threaded UDP-based PIX-like transaction system demonstrating concurrent programming concepts: thread synchronization, reader-writer locks, and deadlock prevention.
 
 ## Features
 
