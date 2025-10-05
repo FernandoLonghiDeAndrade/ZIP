@@ -89,6 +89,7 @@ void Client::discover_server() {
             if (response_packet.type == DISCOVERY_ACK) {
                 // Success: store server's address for future transactions
                 this->server_addr = received_from_addr;
+                this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
                 this->has_server_address = true;
                 PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
                 return;
@@ -118,6 +119,7 @@ void Client::connect_to_known_server() {
             if (response_packet.type == DISCOVERY_ACK) {
                 // Verify response came from expected server (could add IP validation here)
                 this->server_addr = received_from_addr;
+                this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
                 received_ack = true;
                 PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
             }
