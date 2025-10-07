@@ -32,7 +32,7 @@ void Server::run() {
 }
 
 void Server::run_listening_loop() {
-    struct sockaddr_in client_addr;
+    SocketAddress client_addr;
     Packet packet;
     
     while (true) {
@@ -52,15 +52,15 @@ void Server::run_listening_loop() {
 
 // ===== Request routing =====
 
-void Server::process_request(const Packet& packet, struct sockaddr_in client_addr) {
+void Server::process_request(const Packet& packet, const SocketAddress& client_addr) {
     // Dispatch to appropriate handler based on packet type
     switch (packet.type) {
         case DISCOVERY:
-            std::cout << "\nReceived DISCOVERY from " << inet_ntoa(client_addr.sin_addr) << std::endl;
+            std::cout << "\nReceived DISCOVERY from " << client_addr.ip_string() << std::endl;
             handle_discovery(client_addr);
             break;
         case TRANSACTION_REQUEST:
-            std::cout << "\nReceived TRANSACTION_REQUEST from " << inet_ntoa(client_addr.sin_addr) << std::endl;
+            std::cout << "\nReceived TRANSACTION_REQUEST from " << client_addr.ip_string() << std::endl;
             handle_transaction(packet, client_addr);
             break;
         // Other packet types (ACKs) are ignored (server doesn't expect ACKs from clients)
@@ -69,12 +69,9 @@ void Server::process_request(const Packet& packet, struct sockaddr_in client_add
 
 // ===== Discovery handler =====
 
-void Server::handle_discovery(const struct sockaddr_in& client_addr) {
-    // Extract client IP in host byte order (for use as map key)
-    uint32_t client_ip = ntohl(client_addr.sin_addr.s_addr);
-    
+void Server::handle_discovery(const SocketAddress& client_addr) {    
     // Attempt to register new client (insert returns false if already exists)
-    if (clients.insert(client_ip, ClientInfo())) {
+    if (clients.insert(client_addr.ip(), ClientInfo())) {
         // New client registered: update global balance to reflect new account
         // Lock required because s_total_balance is shared across all worker threads
         std::lock_guard<std::mutex> stats_lock(s_stats_mutex);
@@ -89,7 +86,7 @@ void Server::handle_discovery(const struct sockaddr_in& client_addr) {
     
     // Client already exists: read current state (uses LockedMap read lock)
     // Unwrap optional (guaranteed to exist since insert() returned false)
-    ClientInfo client_info = *clients.read(client_ip);
+    ClientInfo client_info = *clients.read(client_addr.ip());
 
     // Send ACK with current client state (idempotent: repeated discoveries get same response)
     Packet reply_packet = Packet::create_reply(DISCOVERY_ACK, client_info.last_processed_request_id, client_info.balance);
@@ -98,10 +95,10 @@ void Server::handle_discovery(const struct sockaddr_in& client_addr) {
 
 // ===== Transaction handler =====
 
-void Server::handle_transaction(const Packet& packet, const struct sockaddr_in& client_addr) {
+void Server::handle_transaction(const Packet& packet, const SocketAddress& client_addr) {
     // Extract IPs in host byte order (packet stores network byte order)
-    uint32_t src_client_ip = ntohl(client_addr.sin_addr.s_addr);
-    uint32_t dest_client_ip = ntohl(packet.payload.request.destination_ip);
+    uint32_t src_client_ip = client_addr.ip();
+    uint32_t dest_client_ip = packet.payload.request.destination_ip;
 
     // ===== Validation Step 1: Source client must exist =====
     ClientInfo src_client;

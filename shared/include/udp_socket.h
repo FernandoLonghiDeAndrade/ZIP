@@ -15,6 +15,96 @@
 #endif
 
 /**
+ * @brief ### Represents a network address (IP + port) in a cross-platform way.
+ * 
+ * Encapsulates sockaddr_in to hide platform-specific socket address structure.
+ * Immutable after construction (thread-safe by design).
+ * 
+ * Usage:
+ * - Create from IP string and port: SocketAddress("192.168.1.1", 8080)
+ * - Create broadcast address: SocketAddress::broadcast(8080)
+ * - Extract IP as string: addr.ip_string()
+ * - Extract port: addr.port()
+ * - Get underlying sockaddr_in: addr.native() (for internal UDPSocket use only)
+ */
+class SocketAddress {
+public:
+    /**
+     * @brief ### Creates address from IP string and port.
+     * 
+     * @param ip IPv4 address in dotted-decimal notation (e.g., "192.168.1.1").
+     * @param port Port number in host byte order.
+     */
+    SocketAddress(const std::string& ip, uint16_t port = 0);
+    
+    /**
+     * @brief ### Creates address from raw IP (network byte order) and port.
+     * 
+     * @param ip_network_byte_order 32-bit IP in network byte order.
+     * @param port Port number in host byte order.
+     */
+    SocketAddress(uint32_t ip_network_byte_order, uint16_t port = 0);
+    
+    /**
+     * @brief ### Creates address from sockaddr_in (internal use by UDPSocket).
+     * 
+     * @param addr Platform-specific socket address structure.
+     */
+    explicit SocketAddress(const struct sockaddr_in& addr);
+    
+    /**
+     * @brief ### Default constructor (creates invalid address 0.0.0.0:0).
+     */
+    SocketAddress();
+    
+    /**
+     * @brief ### Creates broadcast address (255.255.255.255) on given port.
+     * 
+     * @param port Port number in host byte order.
+     * @return SocketAddress configured for broadcast.
+     */
+    static SocketAddress broadcast(uint16_t port);
+    
+    /**
+     * @brief ### Returns IP address as human-readable string.
+     * 
+     * @return String in dotted-decimal format (e.g., "192.168.1.1").
+     */
+    std::string ip_string() const;
+    
+    /**
+     * @brief ### Returns IP address as 32-bit integer (network byte order).
+     * 
+     * @return IP in network byte order (use htonl/ntohl for conversion).
+     */
+    uint32_t ip() const;
+    
+    /**
+     * @brief ### Returns port number (host byte order).
+     * 
+     * @return Port number as seen by application (already converted from network order).
+     */
+    uint16_t port() const;
+    
+    /**
+     * @brief ### Returns underlying sockaddr_in (internal use by UDPSocket only).
+     * 
+     * @return Reference to platform-specific socket address structure.
+     */
+    const struct sockaddr_in& native() const { return addr; }
+    
+    /**
+     * @brief ### Checks if address is valid (not 0.0.0.0:0).
+     * 
+     * @return True if IP is non-zero, false otherwise.
+     */
+    bool is_valid() const;
+
+private:
+    struct sockaddr_in addr;  ///< Underlying platform-specific address structure
+};
+
+/**
  * @brief ### Cross-platform UDP socket wrapper with thread-safe operations.
  * 
  * Encapsulates platform-specific socket APIs (Winsock on Windows, BSD sockets on Linux).
@@ -80,7 +170,7 @@ public:
      * 
      * @param data Pointer to data buffer (must not be nullptr).
      * @param size Number of bytes to send (must not be 0, recommend <= 512 bytes to avoid fragmentation).
-     * @param dest_addr Destination address (IP and port in network byte order).
+     * @param dest_addr Destination address (IP and port).
      * @return True if all bytes written to OS send buffer, false on error.
      * 
      * Failure reasons:
@@ -88,7 +178,7 @@ public:
      * - Network unreachable
      * - Destination port not listening (no error in UDP, packet silently dropped)
      */
-    bool send(const void* data, size_t size, const struct sockaddr_in& dest_addr);
+    bool send(const void* data, size_t size, const SocketAddress& dest_addr);
 
     /**
      * @brief ### Receives UDP datagram from socket (non-blocking). Thread-safe.
@@ -98,7 +188,7 @@ public:
      * 
      * @param buffer Pointer to receive buffer (must not be nullptr).
      * @param size Maximum bytes to read (recommend >= 512 bytes for full datagrams).
-     * @param sender_addr [OUT] Filled with sender's IP and port (network byte order).
+     * @param sender_addr [OUT] Filled with sender's IP and port.
      * @return Number of bytes received (0 = no data available, -1 = error, >0 = success).
      * 
      * Return values:
@@ -109,7 +199,7 @@ public:
      * Note: UDP datagrams are atomic (receive gets entire datagram or nothing).
      * Truncation occurs silently if buffer too small (data lost).
      */
-    int32_t receive(void* buffer, size_t size, struct sockaddr_in& sender_addr);
+    int32_t receive(void* buffer, size_t size, SocketAddress& sender_addr);
 
     /**
      * @brief ### Closes the socket and releases OS resources.
@@ -123,50 +213,6 @@ public:
      * - Can call initialize() again to reopen socket
      */
     void close_socket();
-
-    /**
-     * @brief ### Creates a sockaddr_in from IP string and port.
-     * 
-     * Converts human-readable IP (dotted-decimal) to binary format.
-     * Port is specified in host byte order, converted to network byte order.
-     * 
-     * @param ip String representation of IPv4 address (e.g. "192.168.1.1").
-     * @param port Port number in host byte order.
-     * @return sockaddr_in structure with sin_family, sin_addr, and sin_port set.
-     *   Note: Does not validate IP format (inet_pton does that).
-     */
-    static struct sockaddr_in create_address(const std::string& ip, uint16_t port);
-
-    /**
-     * @brief ### Creates a sockaddr_in for broadcast address on given port.
-     * 
-     * Sets IP to 255.255.255.255 (limited broadcast).
-     * Port is specified in host byte order, converted to network byte order.
-     * 
-     * @param port Port number in host byte order.
-     * @return sockaddr_in structure with sin_family, sin_addr, and sin_port set.
-     */
-    static struct sockaddr_in create_broadcast_address(uint16_t port);
-
-    /**
-     * @brief ### Converts dotted-decimal IP string to 32-bit network byte order.
-     * 
-     * Uses inet_pton to parse string and convert to binary format.
-     * 
-     * @param ip_str String representation of IPv4 address (e.g. "192.168.1.1").
-     * @return 32-bit IP address in network byte order (host-to-network).
-     */
-    static uint32_t string_to_ip(const std::string& ip_str);
-
-    /**
-     * @brief ### Converts 32-bit IP address to dotted-decimal string.
-     * 
-     * Uses inet_ntop to convert binary format to human-readable string.
-     * 
-     * @param ip_network_byte_order IP address in network byte order.
-     * @return String representation in dotted notation (e.g., "192.168.1.1").
-     */
-    static std::string ip_to_string(uint32_t ip_network_byte_order);
 
 private:
     socket_t sock_fd = INVALID_SOCKET_VALUE;  ///< Socket handle (platform-independent)

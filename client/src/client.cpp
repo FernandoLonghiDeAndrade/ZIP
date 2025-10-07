@@ -6,16 +6,18 @@
 
 // ===== Constructor =====
 
-Client::Client(uint16_t server_port, const std::string& server_ip)
-    : server_port(server_port), has_server_address(false), next_request_id(1) {
+Client::Client(uint16_t server_port, const std::string& server_ip) : next_request_id(1) {
     pending_ack_request_id.store(0); // 0 indicates no pending request
-    server_addr = sockaddr_in{};
     
     // Pre-configure server address if known IP provided (skips broadcast discovery)
     if (!server_ip.empty()) {
-        server_addr = UDPSocket::create_address(server_ip, server_port);
         // Validate if address was created successfully (check sin_addr)
-        has_server_address = (server_addr.sin_addr.s_addr != 0);
+        this->server_addr = SocketAddress(server_ip, server_port);
+        has_server_address = this->server_addr.is_valid();
+    } else {
+        // No IP provided: will perform broadcast discovery
+        this->server_addr = SocketAddress::broadcast(server_port);
+        has_server_address = false; // Will perform broadcast discovery
     }
 }
 
@@ -56,27 +58,24 @@ void Client::discover_server() {
     Packet discovery_packet;
     discovery_packet.type = DISCOVERY;
     discovery_packet.request_id = 0;
-    
-    // Broadcast to all devices on local network (255.255.255.255)
-    struct sockaddr_in broadcast_addr = UDPSocket::create_broadcast_address(server_port);
 
     // Retry loop: send DISCOVERY every ACK_TIMEOUT_MS until server responds
     while (!has_server_address) {
-        client_socket.send(&discovery_packet, sizeof(Packet), broadcast_addr);
+        client_socket.send(&discovery_packet, sizeof(Packet), server_addr);
         
         // Non-blocking wait: allows retransmission if no response within timeout
         auto start_time = std::chrono::steady_clock::now(); // Start timer
         while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
             // Check if DISCOVERY_ACK arrived (non-blocking receive)
             Packet response_packet;
-            struct sockaddr_in received_from_addr;
+            SocketAddress received_from_addr;
             if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
                 if (response_packet.type == DISCOVERY_ACK) {
                     // Success: store server's address for future transactions
                     this->server_addr = received_from_addr;
                     this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
                     this->has_server_address = true;
-                    PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
+                    PrintUtils::print_discovery_reply(server_addr.ip());
                     return;
                 }
             }
@@ -100,14 +99,14 @@ void Client::connect_to_known_server() {
         auto start_time = std::chrono::steady_clock::now(); // Start timer
         while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
             Packet response_packet;
-            struct sockaddr_in received_from_addr;
+            SocketAddress received_from_addr;
             if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
                 if (response_packet.type == DISCOVERY_ACK) {
                     // Verify response came from expected server (could add IP validation here)
                     this->server_addr = received_from_addr;
                     this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
                     received_ack = true;
-                    PrintUtils::print_discovery_reply(server_addr.sin_addr.s_addr);
+                    PrintUtils::print_discovery_reply(server_addr.ip());
                 }
             }
         }
@@ -136,15 +135,15 @@ void Client::run_user_input_loop() {
             continue;
         }
 
-        // Convert string IP to binary format (network byte order)
-        uint32_t dest_ip = UDPSocket::string_to_ip(ip_str);
-        if (dest_ip == 0) {
+        // Validate destination IP format
+        SocketAddress dest_addr(ip_str); // Port doesn't matter for destination IP in packet
+        if (!dest_addr.is_valid()) {
             std::cerr << "Invalid destination IP address format.\n\n";
             continue;
         }
 
         // Create packet and send with stop-and-wait retransmission
-        Packet request_packet = Packet::create_request(TRANSACTION_REQUEST, next_request_id, dest_ip, value);
+        Packet request_packet = Packet::create_request(TRANSACTION_REQUEST, next_request_id, dest_addr.ip(), value);
         send_request(request_packet); // Blocks until ACK received or send fails
 
         next_request_id++; // Increment for next transaction (wraps around at UINT32_MAX)
@@ -189,7 +188,7 @@ void Client::send_request(const Packet& packet) {
 
 void Client::handle_server_responses() {
     Packet response_packet;
-    struct sockaddr_in sender_addr;
+    SocketAddress sender_addr;
 
     while (true) {
         // Blocking receive: wait indefinitely for next packet from server
@@ -215,7 +214,7 @@ void Client::handle_server_responses() {
                 case TRANSACTION_ACK:
                     // Success: print transaction details and new balance
                     PrintUtils::print_reply(
-                        sender_addr.sin_addr.s_addr,
+                        sender_addr.ip(),
                         pending_request_packet.request_id,
                         pending_request_packet.payload.request.destination_ip,
                         pending_request_packet.payload.request.value,

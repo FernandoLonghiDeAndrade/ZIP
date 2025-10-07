@@ -22,7 +22,6 @@
     #define set_nonblocking(fd) { u_long mode = 1; ioctlsocket(fd, FIONBIO, &mode); }
     #define is_wouldblock(err) (err == WSAEWOULDBLOCK)
     #define get_socket_error() WSAGetLastError()
-    #define INVALID_FD INVALID_SOCKET
 #else
     #include <unistd.h>
     #include <fcntl.h>
@@ -34,8 +33,52 @@
     #define set_nonblocking(fd) { int flags = fcntl(fd, F_GETFL, 0); fcntl(fd, F_SETFL, flags | O_NONBLOCK); }
     #define is_wouldblock(err) (err == EAGAIN || err == EWOULDBLOCK)
     #define get_socket_error() errno
-    #define INVALID_FD -1
 #endif
+
+// ===== SocketAddress implementation =====
+
+SocketAddress::SocketAddress() {
+    std::memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+}
+
+SocketAddress::SocketAddress(const std::string& ip, uint16_t port) {
+    std::memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+}
+
+SocketAddress::SocketAddress(uint32_t ip_network_byte_order, uint16_t port) {
+    std::memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = ip_network_byte_order;
+}
+
+SocketAddress::SocketAddress(const struct sockaddr_in& addr) : addr(addr) {}
+
+SocketAddress SocketAddress::broadcast(uint16_t port) {
+    return SocketAddress("255.255.255.255", port);
+}
+
+std::string SocketAddress::ip_string() const {
+    char ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &addr.sin_addr, ip_str, INET_ADDRSTRLEN);
+    return std::string(ip_str);
+}
+
+uint32_t SocketAddress::ip() const {
+    return addr.sin_addr.s_addr;
+}
+
+uint16_t SocketAddress::port() const {
+    return ntohs(addr.sin_port);
+}
+
+bool SocketAddress::is_valid() const {
+    return addr.sin_addr.s_addr != 0;
+}
 
 // ===== Socket initialization =====
 
@@ -67,12 +110,12 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
     }
 
     // Bind socket to port and all local interfaces (0.0.0.0)
-    struct sockaddr_in addr {};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 = listen on all interfaces
-    addr.sin_port = htons(port);        // Convert to network byte order
+    struct sockaddr_in bind_addr {};
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 = listen on all interfaces
+    bind_addr.sin_port = htons(port);        // Convert to network byte order
 
-    if (bind(sock_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (bind(sock_fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr)) < 0) {
         close_socket();
         return false;  // Port already in use or insufficient permissions
     }
@@ -82,7 +125,7 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
 
 // ===== Send data =====
 
-bool UDPSocket::send(const void* data, size_t size, const struct sockaddr_in& dest_addr) {
+bool UDPSocket::send(const void* data, size_t size, const SocketAddress& dest_addr) {
     // Validate input parameters
     if (!data || size == 0 || sock_fd == INVALID_SOCKET_VALUE) {
         return false;
@@ -94,8 +137,9 @@ bool UDPSocket::send(const void* data, size_t size, const struct sockaddr_in& de
 
     // Send UDP datagram to destination address
     // Windows expects char* cast, POSIX accepts void* directly
+    const struct sockaddr_in& native_addr = dest_addr.native();
     ssize_t sent_bytes = sendto(sock_fd, (const char*)data, size, 0, 
-                               (const struct sockaddr*)&dest_addr, sizeof(dest_addr));
+                               (const struct sockaddr*)&native_addr, sizeof(native_addr));
     
     // Verify all bytes were sent (should always be true for UDP, or fails completely)
     // UDP is atomic: either entire datagram is sent, or error occurs
@@ -104,7 +148,7 @@ bool UDPSocket::send(const void* data, size_t size, const struct sockaddr_in& de
 
 // ===== Receive data =====
 
-int32_t UDPSocket::receive(void* buffer, size_t size, struct sockaddr_in& sender_addr) {
+int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr) {
     // Validate input parameters
     if (!buffer || size == 0 || sock_fd == INVALID_SOCKET_VALUE) {
         return -1;
@@ -115,9 +159,10 @@ int32_t UDPSocket::receive(void* buffer, size_t size, struct sockaddr_in& sender
     std::lock_guard<std::mutex> lock(receive_mutex);
     
     // Receive UDP datagram from any sender (non-blocking)
-    socklen_t addr_len = sizeof(sender_addr);
+    struct sockaddr_in native_addr;
+    socklen_t addr_len = sizeof(native_addr);
     ssize_t received_bytes = recvfrom(sock_fd, (char*)buffer, size, 0, 
-                                     (struct sockaddr*)&sender_addr, &addr_len);
+                                     (struct sockaddr*)&native_addr, &addr_len);
     
     if (received_bytes < 0) {
         int err = get_socket_error();
@@ -128,6 +173,9 @@ int32_t UDPSocket::receive(void* buffer, size_t size, struct sockaddr_in& sender
         // Real error (socket closed, network error, etc.)
         return -1;
     }
+    
+    // Update sender address with received packet source
+    sender_addr = SocketAddress(native_addr);
     
     // Return number of bytes received (UDP datagram size)
     // Note: If buffer too small, datagram is truncated and excess data is lost
@@ -145,34 +193,4 @@ void UDPSocket::close_socket() {
         close_socket_impl(sock_fd);         // Platform-specific close function
         sock_fd = INVALID_SOCKET_VALUE;     // Mark as closed (prevents double-close)
     }
-}
-
-// ===== Static address helpers =====
-
-struct sockaddr_in UDPSocket::create_address(const std::string& ip, uint16_t port) {
-    struct sockaddr_in addr {};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
-    return addr;
-}
-
-struct sockaddr_in UDPSocket::create_broadcast_address(uint16_t port) {
-    return create_address("255.255.255.255", port);
-}
-
-uint32_t UDPSocket::string_to_ip(const std::string& ip_str) {
-    struct in_addr addr;
-    if (inet_pton(AF_INET, ip_str.c_str(), &addr) == 1) {
-        return addr.s_addr;
-    }
-    return 0;  // Invalid IP
-}
-
-std::string UDPSocket::ip_to_string(uint32_t ip_network_byte_order) {
-    struct in_addr addr;
-    addr.s_addr = ip_network_byte_order;
-    char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr, ip_str, INET_ADDRSTRLEN);
-    return std::string(ip_str);
 }

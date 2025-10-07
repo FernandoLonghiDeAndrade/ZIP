@@ -99,9 +99,8 @@ private:
 
     // ===== Server Connection State =====
     
-    uint16_t server_port;                   ///< Server's UDP port (used for both discovery and transactions)
     UDPSocket client_socket;                ///< UDP socket with broadcast capability enabled
-    struct sockaddr_in server_addr;         ///< Server's address (populated during discovery phase)
+    SocketAddress server_addr;              ///< Server's address (populated during discovery phase)
     bool has_server_address;                ///< True after DISCOVERY_ACK received, false otherwise
     uint32_t next_request_id;               ///< Monotonically increasing ID for outgoing requests (starts at 1)
 

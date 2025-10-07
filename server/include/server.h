@@ -78,7 +78,7 @@ private:
      * @param packet The request packet received from client.
      * @param client_addr Client's address (used for sending ACK response).
      */
-    void process_request(const Packet& packet, struct sockaddr_in client_addr);
+    void process_request(const Packet& packet, const SocketAddress& client_addr);
 
     // ===== Request Handlers =====
     
@@ -92,7 +92,7 @@ private:
      * 
      * @param client_addr Client's IP address (used as key in clients map).
      */
-    void handle_discovery(const struct sockaddr_in& client_addr);
+    void handle_discovery(const SocketAddress& client_addr);
 
     /**
      * @brief ### Handles TRANSACTION_REQUEST: validates, executes, and sends appropriate ACK.
@@ -113,7 +113,7 @@ private:
      * @param packet Transaction packet containing destination IP and value.
      * @param client_addr Sender's address (source of funds).
      */
-    void handle_transaction(const Packet& packet, const struct sockaddr_in& client_addr);
+    void handle_transaction(const Packet& packet, const SocketAddress& client_addr);
 
     // ===== Server State =====
     
