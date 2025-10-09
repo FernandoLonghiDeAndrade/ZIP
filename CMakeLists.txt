@@ -32,3 +32,11 @@ foreach(t IN ITEMS server client)
     target_include_directories(${t} PRIVATE ${t}/include)
     target_link_libraries(${t} PRIVATE shared Threads::Threads)
 endforeach()
+
+# Executables tests
+add_executable(tests
+    tests/main.cpp
+    tests/src/subprocess.cpp
+)
+target_include_directories(tests PRIVATE tests/include)
+target_link_libraries(tests PRIVATE shared Threads::Threads)

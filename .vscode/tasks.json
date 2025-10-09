@@ -21,6 +21,13 @@
             "command": "cmake --build build --target server",
             "dependsOn": "setup",
             "problemMatcher": []
+        },
+        {
+            "label": "build-tests",
+            "type": "shell",
+            "command": "cmake --build build --target tests",
+            "dependsOn": "setup",
+            "problemMatcher": []
         }
     ]
 }
