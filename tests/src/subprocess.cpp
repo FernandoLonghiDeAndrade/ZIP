@@ -13,6 +13,7 @@
   #include <sys/types.h>
   #include <sys/wait.h>
   #include <errno.h>
+  #include <fcntl.h>
   #include <signal.h>
 #endif
 
@@ -233,7 +234,7 @@ void Subprocess::close_stdin() noexcept {
 #endif
 }
 
-static bool read_line_from_stream_blocking(
+static bool read_line_from_stream(
 #ifdef _WIN32
     HANDLE h, 
 #else
@@ -242,24 +243,55 @@ static bool read_line_from_stream_blocking(
     std::string& line_out)
 {
     line_out.clear();
-    char ch;
-    for (;;) {
 #ifdef _WIN32
-        DWORD n = 0;
+    DWORD avail = 0;
+    if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL) || avail == 0)
+        return false; // nada disponível
+    char ch;
+    DWORD n = 0;
+    while (avail > 0) {
         BOOL ok = ReadFile(h, &ch, 1, &n, NULL);
-        if (!ok) return !line_out.empty(); // erro/EOF: se já tem algo, devolve
-        if (n == 0) return !line_out.empty(); // EOF
-#else
-        ssize_t n = ::read(fd, &ch, 1);
-        if (n == 0) return !line_out.empty(); // EOF
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return !line_out.empty();
-        }
-#endif
+        if (!ok || n == 0) return !line_out.empty();
         line_out.push_back(ch);
         if (ch == '\n') return true;
+        --avail;
     }
+    return !line_out.empty();
+#else
+    // Não bloqueante: usa O_NONBLOCK temporariamente
+    int orig_flags = fcntl(fd, F_GETFL, 0);
+    if (orig_flags == -1) return false;
+    bool restore = false;
+    if (!(orig_flags & O_NONBLOCK)) {
+        if (fcntl(fd, F_SETFL, orig_flags | O_NONBLOCK) == -1) return false;
+        restore = true;
+    }
+    char ch;
+    ssize_t n;
+    while (true) {
+        n = ::read(fd, &ch, 1);
+        if (n > 0) {
+            line_out.push_back(ch);
+            if (ch == '\n') {
+                if (restore) fcntl(fd, F_SETFL, orig_flags);
+                return true;
+            }
+        } else if (n == 0) {
+            // EOF
+            if (restore) fcntl(fd, F_SETFL, orig_flags);
+            return !line_out.empty();
+        } else {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Sem dados disponíveis agora
+                if (restore) fcntl(fd, F_SETFL, orig_flags);
+                return !line_out.empty();
+            }
+            // Outro erro
+            if (restore) fcntl(fd, F_SETFL, orig_flags);
+            return !line_out.empty();
+        }
+    }
+#endif
 }
 
 std::size_t Subprocess::read_stdout(void* buffer, std::size_t max_bytes) {
@@ -286,10 +318,10 @@ std::size_t Subprocess::read_stdout(void* buffer, std::size_t max_bytes) {
 bool Subprocess::read_stdout_line(std::string& line) {
 #ifdef _WIN32
     if (!pimpl_->hStdoutRd) return false;
-    return read_line_from_stream_blocking(pimpl_->hStdoutRd, line);
+    return read_line_from_stream(pimpl_->hStdoutRd, line);
 #else
     if (pimpl_->stdout_pipe[0] == -1) return false;
-    return read_line_from_stream_blocking(pimpl_->stdout_pipe[0], line);
+    return read_line_from_stream(pimpl_->stdout_pipe[0], line);
 #endif
 }
 
@@ -316,10 +348,10 @@ bool Subprocess::read_stderr_line(std::string& line) {
     if (pimpl_->stderr_redirected) return false;
 #ifdef _WIN32
     if (!pimpl_->hStderrRd) return false;
-    return read_line_from_stream_blocking(pimpl_->hStderrRd, line);
+    return read_line_from_stream(pimpl_->hStderrRd, line);
 #else
     if (pimpl_->stderr_pipe[0] == -1) return false;
-    return read_line_from_stream_blocking(pimpl_->stderr_pipe[0], line);
+    return read_line_from_stream(pimpl_->stderr_pipe[0], line);
 #endif
 }
 
