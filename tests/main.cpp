@@ -1,4 +1,4 @@
-#include "subprocess.hpp"
+#include "subprocess.h"
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -29,7 +29,7 @@ bool validate_balance(const std::string& line, const int expected_balance, int &
     return found_balance == expected_balance;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
         // Select program names depending on platform (Windows or Unix)
 #ifdef _WIN32
@@ -40,12 +40,24 @@ int main() {
         const std::string client_prog = "./client";
 #endif
 
-        // List of client IPs (all the same here, but could be different)
-        std::vector<std::string> client_ips = {"192.168.1.156", "192.168.1.156", "192.168.1.156"};
+        // Defaults
         std::string server_ip_port = "8080";
-
         const long INITIAL_BALANCE = 100;
-        const int TEST_COUNT = 100;
+
+        // Read TEST_COUNT and client IPs from command line:
+        // Usage: ./tests [TEST_COUNT] [client_ip1 client_ip2 ...]
+        int TEST_COUNT = 100;
+        std::vector<std::string> client_ips = {"192.168.1.156", "192.168.1.156", "192.168.1.156"};
+        if (argc >= 2) {
+            try {
+                int v = std::stoi(argv[1]);
+                if (v > 0) TEST_COUNT = v;
+            } catch (...) { /* keep default */ }
+        }
+        if (argc >= 3) {
+            client_ips.clear();
+            for (int i = 2; i < argc; ++i) client_ips.emplace_back(argv[i]);
+        }
 
         // Summary variables for test results
         std::atomic<int> total_tests{0};

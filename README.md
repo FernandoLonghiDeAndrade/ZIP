@@ -39,6 +39,14 @@ ZIP/
 │       ├── print_utils.cpp       # Timestamp + formatting
 │       └── udp_socket.cpp        # Platform-specific socket code
 │
+├── tests/
+│   ├── include/
+│   │   └── subprocess.h          # Subprocess class
+│   │   
+│   └── src/
+│   │   └── subprocess.cpp        # Instantiates and communicates with subprocesses
+│   └── main.cpp                  # Test entry point
+│
 ├── CMakeLists.txt                # Build configuration
 ├── .gitignore
 └── README.md
@@ -97,6 +105,17 @@ cmake --build . -j4
 # Direct connection (skip discovery)
 .\client.exe 8080 192.168.1.100   # Windows
 ./client 8080 192.168.1.100       # Linux/macOS
+```
+
+### Test
+
+```bash
+.\test.exe  # Windows
+./test      # Linux/macOS
+
+# Passing test args, number of tests and clients ips
+.\test.exe [TEST_COUNT] [client_ip1 client_ip2 ...] # Windows
+./test [TEST_COUNT] [client_ip1 client_ip2 ...]     # Linux/macOS
 ```
 
 ## Usage
