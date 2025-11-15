@@ -157,4 +157,5 @@ private:
     void handle_server_discovery(const SocketAddress& server_addr); ///< Handles discovery requests on backup servers
     uint32_t get_server_id(const SocketAddress& server_addr); ///< Retrieves this server's unique ID from backup_servers list
     void handle_server_list_update(const Packet& packet); ///< Handles server list update packets from leader
+    bool check_server_exists(const SocketAddress& server_addr); ///< Checks if a server is already in the backup_servers list
 };

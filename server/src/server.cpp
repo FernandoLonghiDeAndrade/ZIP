@@ -230,12 +230,22 @@ void Server::handle_transaction(const Packet& packet, const SocketAddress& clien
 
 uint32_t Server::get_server_id(const SocketAddress& server_addr) {
     for (const auto& server : backup_servers) {
-        if (server.address.ip() == server_addr.ip()) {
+        if (server.address.ip() == server_addr.ip() && server.address.port() == server_addr.port()) {
             return server.id;
         }
     }
     
     return backup_servers.size();
+}
+
+bool Server::check_server_exists(const SocketAddress& server_addr) {
+    for (const auto& server : backup_servers) {
+        if (server.address.ip() == server_addr.ip() && server.address.port() == server_addr.port()) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 void Server::discover_backup_servers() {
@@ -282,13 +292,19 @@ void Server::handle_server_discovery(const SocketAddress& server_addr) {
         return;
     }
 
-    ServerInfo server_info;
-    server_info.address = server_addr;
-    server_info.is_leader = false;
-    server_info.sequence_counter = this->sequence_counter;
-    server_info.id = get_server_id(server_addr);
+    uint32_t id = get_server_id(server_addr);
 
-    backup_servers.push_back(server_info);
+    if(!check_server_exists(server_addr)) {
+        ServerInfo server_info;
+        server_info.address = server_addr;
+        server_info.is_leader = false;
+        server_info.sequence_counter = this->sequence_counter;
+        server_info.id = id;
+
+        backup_servers.push_back(server_info);
+    }
+
+    Packet reply_packet = Packet::create_server_discovery_reply(this->sequence_counter, id);
 
     std::vector<ServerEntry> server_entries;
     for (const auto& server : backup_servers) {
@@ -298,10 +314,6 @@ void Server::handle_server_discovery(const SocketAddress& server_addr) {
             .id = server.id
         });
     }
-
-    Packet reply_packet = Packet::create_server_discovery_reply(
-        server_info.sequence_counter, server_info.id
-    );
     
     server_socket.send(&reply_packet, sizeof(reply_packet), server_addr);
 
@@ -328,6 +340,9 @@ void Server::handle_server_list_update(const Packet& packet) {
             .sequence_counter = 0,
             .id = packet.payload.server_list_update.servers[i].id
         });
-        std::cout << server_address.ip_string() << ":" << server_address.port() << std::endl;
+    }
+
+    for (const auto& server : backup_servers) {
+        std::cout << server.address.ip_string() << ":" << server.address.port() << " (ID: " << server.id << ")" << std::endl;
     }
 }
