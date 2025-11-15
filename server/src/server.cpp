@@ -19,6 +19,10 @@ Server::Server(uint16_t port) : port(port) {
     if (!server_socket.initialize(port, true)) {
         throw std::runtime_error("Failed to initialize UDP socket");
     }
+
+    this->is_leader = true;          // Assume leader role at startup
+    this->sequence_counter = 0;      // Start sequence counter at 0
+    this->server_id = 0;             // Unique server ID
 }
 
 // ===== Main execution =====
@@ -26,6 +30,9 @@ Server::Server(uint16_t port) : port(port) {
 void Server::run() {
     // Print initial state (empty bank at startup)
     PrintUtils::print_server_state(s_num_transactions, s_total_transferred, s_total_balance);
+
+    // Discover backup servers at startup
+    discover_backup_servers();
     
     // Enter infinite listening loop (never returns)
     run_listening_loop();
@@ -55,13 +62,17 @@ void Server::run_listening_loop() {
 void Server::process_request(const Packet& packet, const SocketAddress& client_addr) {
     // Dispatch to appropriate handler based on packet type
     switch (packet.type) {
-        case DISCOVERY:
-            std::cout << "\nReceived DISCOVERY from " << client_addr.ip_string() << std::endl;
-            handle_discovery(client_addr);
+        case CLIENT_DISCOVERY:
+            std::cout << "\nReceived CLIENT_DISCOVERY from " << client_addr.ip_string() << std::endl;
+            handle_client_discovery(client_addr);
             break;
         case TRANSACTION_REQUEST:
             std::cout << "\nReceived TRANSACTION_REQUEST from " << client_addr.ip_string() << std::endl;
             handle_transaction(packet, client_addr);
+            break;
+        case SERVER_DISCOVERY:
+            std::cout << "\nReceived SERVER_DISCOVERY from " << client_addr.ip_string() << std::endl;
+            handle_server_discovery(client_addr);
             break;
         // Other packet types (ACKs) are ignored (server doesn't expect ACKs from clients)
     }
@@ -69,7 +80,7 @@ void Server::process_request(const Packet& packet, const SocketAddress& client_a
 
 // ===== Discovery handler =====
 
-void Server::handle_discovery(const SocketAddress& client_addr) {    
+void Server::handle_client_discovery(const SocketAddress& client_addr) {    
     // Attempt to register new client (insert returns false if already exists)
     if (clients.insert(client_addr.ip(), ClientInfo())) {
         // New client registered: update global balance to reflect new account
@@ -79,7 +90,7 @@ void Server::handle_discovery(const SocketAddress& client_addr) {
 
         // Send ACK with default initial values (balance = 100, last_request_id = 0)
         ClientInfo default_info;
-        Packet reply_packet = Packet::create_reply(DISCOVERY_ACK, default_info.last_processed_request_id, default_info.balance);
+        Packet reply_packet = Packet::create_reply(CLIENT_DISCOVERY_ACK, default_info.last_processed_request_id, default_info.balance);
         server_socket.send(&reply_packet, sizeof(reply_packet), client_addr);
         return;
     }
@@ -89,7 +100,7 @@ void Server::handle_discovery(const SocketAddress& client_addr) {
     ClientInfo client_info = *clients.read(client_addr.ip());
 
     // Send ACK with current client state (idempotent: repeated discoveries get same response)
-    Packet reply_packet = Packet::create_reply(DISCOVERY_ACK, client_info.last_processed_request_id, client_info.balance);
+    Packet reply_packet = Packet::create_reply(CLIENT_DISCOVERY_ACK, client_info.last_processed_request_id, client_info.balance);
     server_socket.send(&reply_packet, sizeof(reply_packet), client_addr);
 }
 
@@ -199,4 +210,93 @@ void Server::handle_transaction(const Packet& packet, const SocketAddress& clien
 
     // Print transaction summary (uses updated stats from above)
     PrintUtils::print_request(src_client_ip, packet, false, s_num_transactions, s_total_transferred, s_total_balance);
+}
+
+uint32_t Server::get_server_id(const SocketAddress& server_addr) {
+    for (const auto& server : backup_servers) {
+        if (server.address.ip() == server_addr.ip()) {
+            return server.id;
+        }
+    }
+    
+    return backup_servers.size();
+}
+
+void Server::discover_backup_servers() {
+
+    // Broadcast SERVER_DISCOVERY packet to find current leader
+    Packet discovery_packet;
+    discovery_packet.type = SERVER_DISCOVERY;
+    discovery_packet.request_id = 0;
+
+    server_socket.send(&discovery_packet, sizeof(Packet), SocketAddress::broadcast(this->port));
+    
+    // Wait for SERVER_DISCOVERY_ACK responses with timeout
+    auto start_time = std::chrono::steady_clock::now(); // Start timer
+    while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(SERVER_TIMEOUT_DISCOVERY_ACK)) {
+        Packet response_packet;
+        SocketAddress received_from_addr;
+        if (server_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
+            if (response_packet.type == SERVER_DISCOVERY_ACK) {
+                // Received response from current leader
+                this->server_id = response_packet.payload.server_discovery.server_id;
+                this->sequence_counter = response_packet.payload.server_discovery.sequence_counter;
+                this->is_leader = false; // This server is a backup
+                this->backup_servers.clear();
+                // Populate backup_servers list from response
+                uint8_t server_count = response_packet.payload.server_discovery.server_count;
+                for (size_t i = 0; i < server_count; ++i) {
+                    ServerEntry entry = response_packet.payload.server_discovery.servers[i];
+                    SocketAddress server_address(entry.ip, ntohs(entry.port));
+                    this->backup_servers.push_back(ServerInfo{
+                        .address = server_address,
+                        .is_leader = (server_address.ip() == received_from_addr.ip()),
+                        .sequence_counter = response_packet.payload.server_discovery.sequence_counter,
+                        .id = response_packet.payload.server_discovery.server_id
+                    });
+                }
+                break;
+            }
+        }
+    }
+    
+    if (this->is_leader) {
+        // No response received: assume leader role
+        // Add itself to backup_servers list
+        this->backup_servers.push_back(ServerInfo{
+                    .address = SocketAddress("0.0.0.0", this->port),
+                    .is_leader = true,
+                    .sequence_counter = this->sequence_counter,
+                    .id = this->server_id
+                });
+    }
+}
+
+void Server::handle_server_discovery(const SocketAddress& server_addr) {
+    // Respond to SERVER_DISCOVERY with SERVER_DISCOVERY_ACK
+    if(!this->is_leader) {
+        // Not the leader: ignore discovery requests
+        return;
+    }
+
+    ServerInfo server_info;
+    server_info.address = server_addr;
+    server_info.is_leader = false;
+    server_info.sequence_counter = this->sequence_counter;
+    server_info.id = get_server_id(server_addr);
+
+    backup_servers.push_back(server_info);
+
+    std::vector<ServerEntry> server_entries;
+    for (const auto& server : backup_servers) {
+        server_entries.push_back(ServerEntry{
+            .ip = server.address.ip(),
+            .port = server.address.port()
+        });
+    }
+
+    Packet reply_packet = Packet::create_server_discovery_reply(
+        SERVER_DISCOVERY_ACK, server_info.sequence_counter, server_info.id, backup_servers.size(), server_entries.data());
+    
+    server_socket.send(&reply_packet, sizeof(reply_packet), server_addr);
 }

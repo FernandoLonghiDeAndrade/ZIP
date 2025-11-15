@@ -223,3 +223,27 @@ ipconfig              # Windows
 ## License
 
 Educational project for Operating Systems course.
+
+### Novo servidor online ou volta de um que tinha caido
+1. Ao iniciar, servidor faz um discovery de outros servidores da rede;
+2. Apenas o atual lider responde com o id que o servidor novo terá, o número de transação atual e a tabela de saldo dos clientes;
+3. Se o servidor (baseado no ip), já existia na tabela e já tinha um id, o lider apenas devolve esse id, sem criar um novo; 
+4. O lider atualiza sua tabela de servidores de backup e envia para todos eles para que também se atualizem;
+5. Se, ao receber a nova tabela do lider, o id do lider for maior, inicia uma nova eleição.
+
+### Transação requerida
+1. Ao receber uma alteração de saldo, altera o banco local e envia para todos os servidores de backup os saldos atualizados de todos os clientes;
+2. Lider não precisa de resposta dos backups, na eleição o melhor será eleito igual.
+3. Lider responde ao cliente que transação foi concluida.
+
+### Verificação se o lider está online (Ping)
+1. A cada segundo, os servidores de backup enviam ao lider um ping para verificar se ele está online;
+2. Caso o lider não responda, o servidor de backup inicia uma eleição.
+
+### Servidor Líder caiu (Eleição)
+1. Ao iniciar eleição, o servidor envia a todos os outros servidores que ele quer ser lider, enviando seu id e seu número de transação;
+2. O critério da eleição será o maior número de transação. Se 2 ou mais processos tiverem o mesmo número de transação, o critério de desempate é o menor id;
+3. Caso algum outro servidor responder que na verdade ele é o lider, o servidor aceita, pois se ele respondeu é lider, é pq ele tem vantagem nos criterios;
+4. Se ele não receber nenhuma resposta de um servidor acima (com criterio melhores) ele se assume lider;
+5. Ao se assumir lider, atualiza sua tabela de servidores e envia para todos os backups;
+6. Envia para todos os clientes que ele é o servidor que deverá receber as requisições.

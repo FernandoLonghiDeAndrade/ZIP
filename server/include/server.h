@@ -7,6 +7,8 @@
 /// Initial balance assigned to newly discovered clients (prevents negative balances on first transaction)
 constexpr uint32_t CLIENT_INITIAL_BALANCE = 100;
 
+constexpr uint32_t SERVER_TIMEOUT_DISCOVERY_ACK = 200; // timeout to wait for SERVER_DISCOVERY_ACK (ms)
+
 /**
  * @brief ### Per-client state maintained by the server.
  * 
@@ -17,6 +19,13 @@ struct ClientInfo {
     uint32_t last_processed_request_id = 0;		///< Last processed request ID (for duplicate detection)
                                                 ///< 0 = no requests processed yet
     uint32_t balance = CLIENT_INITIAL_BALANCE;  ///< Current balance (decremented on send, incremented on receive)
+};
+
+struct ServerInfo {
+    SocketAddress address;     ///< Server's IP and port
+    bool is_leader;            ///< True if server is currently active, false if marked as failed
+    uint32_t sequence_counter; ///< Monotonically increasing counter for leader election
+    uint32_t id;               ///< Unique server ID (for tie-breaking in elections)
 };
 
 /**
@@ -92,7 +101,7 @@ private:
      * 
      * @param client_addr Client's IP address (used as key in clients map).
      */
-    void handle_discovery(const SocketAddress& client_addr);
+    void handle_client_discovery(const SocketAddress& client_addr);
 
     /**
      * @brief ### Handles TRANSACTION_REQUEST: validates, executes, and sends appropriate ACK.
@@ -136,4 +145,14 @@ private:
     /// Protects global statistics (s_num_transactions, s_total_transferred, s_total_balance)
     /// Not needed for clients map (LockedMap has internal locking)
     static std::mutex s_stats_mutex;
+
+    // ===== Backup Servers =====
+    std::vector<ServerInfo> backup_servers; ///< List of backup servers for failover
+    bool is_leader;                         ///< True if this server is the current leader, false otherwise
+    uint32_t sequence_counter;              ///< Monotonically increasing counter for leader election
+    uint32_t server_id;                     ///< Unique server ID (for tie-breaking in elections)
+
+    void discover_backup_servers(); ///< Discovers and populates backup_servers list
+    void handle_server_discovery(const SocketAddress& server_addr); ///< Handles discovery requests on backup servers
+    uint32_t get_server_id(const SocketAddress& server_addr); ///< Retrieves this server's unique ID from backup_servers list
 };

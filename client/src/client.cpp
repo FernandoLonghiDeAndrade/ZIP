@@ -56,7 +56,7 @@ void Client::run() {
 void Client::discover_server() {
     // Discovery packet has request_id = 0 (special value, not counted in next_request_id)
     Packet discovery_packet;
-    discovery_packet.type = DISCOVERY;
+    discovery_packet.type = CLIENT_DISCOVERY;
     discovery_packet.request_id = 0;
 
     // Retry loop: send DISCOVERY every ACK_TIMEOUT_MS until server responds
@@ -70,7 +70,7 @@ void Client::discover_server() {
             Packet response_packet;
             SocketAddress received_from_addr;
             if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
-                if (response_packet.type == DISCOVERY_ACK) {
+                if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                     // Success: store server's address for future transactions
                     this->server_addr = received_from_addr;
                     this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
@@ -87,7 +87,7 @@ void Client::discover_server() {
 void Client::connect_to_known_server() {
     // Same as discover_server() but sends to specific IP instead of broadcast
     Packet discovery_packet;
-    discovery_packet.type = DISCOVERY;
+    discovery_packet.type = CLIENT_DISCOVERY;
     discovery_packet.request_id = 0;
 
     // Retry loop: server might not be ready yet or packets might be lost
@@ -101,7 +101,7 @@ void Client::connect_to_known_server() {
             Packet response_packet;
             SocketAddress received_from_addr;
             if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
-                if (response_packet.type == DISCOVERY_ACK) {
+                if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                     // Verify response came from expected server (could add IP validation here)
                     this->server_addr = received_from_addr;
                     this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo

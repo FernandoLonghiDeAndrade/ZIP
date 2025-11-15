@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+static constexpr uint8_t MAX_SERVERS = 16;    ///< Maximum number of servers supported
+
 /**
  * @brief ### Defines the type of message being sent in a Packet.
  * 
@@ -9,8 +11,8 @@
  */
 enum PacketType : uint8_t {
     // Discovery phase
-    DISCOVERY = 1,                  ///< Client -> Server: Request to register/discover server
-    DISCOVERY_ACK = 2,              ///< Server -> Client: Confirmation with client's current state
+    CLIENT_DISCOVERY = 1,                  ///< Client -> Server: Request to register/discover server
+    CLIENT_DISCOVERY_ACK = 2,              ///< Server -> Client: Confirmation with client's current state
     
     // Transaction phase
     TRANSACTION_REQUEST = 4,        ///< Client -> Server: Request to transfer funds
@@ -19,7 +21,10 @@ enum PacketType : uint8_t {
     TRANSACTION_ACK = 8,            ///< Server -> Client: Transaction successful
     INSUFFICIENT_BALANCE_ACK = 16,  ///< Server -> Client: Transaction rejected (not enough funds)
     INVALID_CLIENT_ACK = 32,        ///< Server -> Client: Transaction rejected (destination doesn't exist)
-    ERROR_ACK = 64                  ///< Server -> Client: Transaction rejected (server error)
+    ERROR_ACK = 64,                 ///< Server -> Client: Transaction rejected (server error)
+
+    SERVER_DISCOVERY = 128,                  ///< Backup Server -> Clients: Request to discover current leader server
+    SERVER_DISCOVERY_ACK = 129,              ///< Leader Server -> Backup Servers: Confirmation of
 };
 
 /**
@@ -42,6 +47,29 @@ struct RequestPayload {
 struct ReplyPayload {
     uint32_t new_balance;       ///< Sender's balance after transaction (or current balance for DISCOVERY_ACK)
                                 ///< For error ACKs, contains balance before failed transaction attempt
+};
+
+/**
+ * @brief ### Information about a server in the system.
+ * 
+ * Used for server discovery and leader election among backup servers.
+ */
+struct ServerEntry {
+    uint32_t ip;        ///< Server IP in network byte order (use ntohl() to read)
+    uint16_t port;      ///< Server port in network byte order (use ntohs() to read)
+};
+
+/**
+ * @brief ### Payload for server discovery packets.
+ * 
+ * Used when packet.type == SERVER_DISCOVERY or SERVER_DISCOVERY_ACK.
+ * Contains information about available servers for leader election.
+ */
+struct ServerDiscoveryPayload {
+    uint32_t sequence_counter;  ///< Monotonically increasing counter for leader election
+    uint32_t server_id;         ///< Unique server ID (for tie-breaking in elections)
+    uint8_t server_count;                ///< Number of valid entries in 'servers'
+    ServerEntry servers[MAX_SERVERS];    ///< Fixed list of available servers
 };
 
 /**
@@ -72,6 +100,7 @@ struct Packet {
     union {
         RequestPayload request; ///< Valid for TRANSACTION_REQUEST packets
         ReplyPayload reply;     ///< Valid for all ACK packets (DISCOVERY_ACK, TRANSACTION_ACK, etc.)
+        ServerDiscoveryPayload server_discovery; ///< Valid for SERVER_DISCOVERY and SERVER_DISCOVERY_ACK packets
     } payload;
 
     /**
@@ -116,6 +145,28 @@ struct Packet {
         p.type = type;
         p.request_id = request_id;
         p.payload.reply.new_balance = balance;
+        return p;
+    }
+
+    static Packet create_server_discovery_reply(
+            PacketType type, 
+            uint32_t sequence_counter, 
+            uint32_t server_id, 
+            uint8_t server_count, 
+            ServerEntry servers[]) 
+    {
+        Packet p;
+        p.type = type;
+        p.request_id = 0; // Not used for server discovery
+        p.payload.server_discovery.sequence_counter = sequence_counter;
+        p.payload.server_discovery.server_id = server_id;
+        p.payload.server_discovery.server_count = server_count;
+
+        for (uint8_t i = 0; i < server_count && i < MAX_SERVERS; ++i) {
+            p.payload.server_discovery.servers[i].ip = servers[i].ip;
+            p.payload.server_discovery.servers[i].port = servers[i].port;
+        }
+
         return p;
     }
 };
