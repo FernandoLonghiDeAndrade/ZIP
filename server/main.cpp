@@ -9,8 +9,8 @@
  * Example: ./server 8080
  */
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <port>" << std::endl;
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <port> <:ip>" << std::endl;
         return 1;
     }
 
@@ -27,9 +27,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    std::string ip = "0.0.0.0";
+    if(argc == 3) {
+        ip = argv[2];
+    }
+
     // Start server
     try {
-        Server server(port);
+        Server server(port, ip);
         server.run();
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << std::endl;

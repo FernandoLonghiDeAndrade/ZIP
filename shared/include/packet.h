@@ -25,6 +25,7 @@ enum PacketType : uint8_t {
 
     SERVER_DISCOVERY = 128,                  ///< Backup Server -> Clients: Request to discover current leader server
     SERVER_DISCOVERY_ACK = 129,              ///< Leader Server -> Backup Servers: Confirmation of
+    SERVER_LIST_UPDATE = 130                  ///< Leader Server -> Backup Servers: Update list of backup servers
 };
 
 /**
@@ -57,6 +58,7 @@ struct ReplyPayload {
 struct ServerEntry {
     uint32_t ip;        ///< Server IP in network byte order (use ntohl() to read)
     uint16_t port;      ///< Server port in network byte order (use ntohs() to read)
+    uint32_t id;        ///< Unique server ID for leader election
 };
 
 /**
@@ -68,6 +70,15 @@ struct ServerEntry {
 struct ServerDiscoveryPayload {
     uint32_t sequence_counter;  ///< Monotonically increasing counter for leader election
     uint32_t server_id;         ///< Unique server ID (for tie-breaking in elections)
+};
+
+/**
+ * @brief ### Payload for server list update packets.
+ * 
+ * Used when packet.type == SERVER_LIST_UPDATE.
+ * Contains updated list of backup servers.
+ */
+struct ServerListUpdatePayload {
     uint8_t server_count;                ///< Number of valid entries in 'servers'
     ServerEntry servers[MAX_SERVERS];    ///< Fixed list of available servers
 };
@@ -101,6 +112,7 @@ struct Packet {
         RequestPayload request; ///< Valid for TRANSACTION_REQUEST packets
         ReplyPayload reply;     ///< Valid for all ACK packets (DISCOVERY_ACK, TRANSACTION_ACK, etc.)
         ServerDiscoveryPayload server_discovery; ///< Valid for SERVER_DISCOVERY and SERVER_DISCOVERY_ACK packets
+        ServerListUpdatePayload server_list_update; ///< Valid for SERVER_LIST_UPDATE packets
     } payload;
 
     /**
@@ -148,23 +160,30 @@ struct Packet {
         return p;
     }
 
-    static Packet create_server_discovery_reply(
-            PacketType type, 
-            uint32_t sequence_counter, 
-            uint32_t server_id, 
+    static Packet create_server_discovery_reply(uint32_t sequence_counter, uint32_t server_id) 
+    {
+        Packet p;
+        p.type = SERVER_DISCOVERY_ACK;
+        p.request_id = 0; // Not used for server discovery
+        p.payload.server_discovery.sequence_counter = sequence_counter;
+        p.payload.server_discovery.server_id = server_id;
+
+        return p;
+    }
+
+    static Packet create_server_list_update_reply(
             uint8_t server_count, 
             ServerEntry servers[]) 
     {
         Packet p;
-        p.type = type;
+        p.type = SERVER_LIST_UPDATE;
         p.request_id = 0; // Not used for server discovery
-        p.payload.server_discovery.sequence_counter = sequence_counter;
-        p.payload.server_discovery.server_id = server_id;
-        p.payload.server_discovery.server_count = server_count;
+        p.payload.server_list_update.server_count = server_count;
 
         for (uint8_t i = 0; i < server_count && i < MAX_SERVERS; ++i) {
-            p.payload.server_discovery.servers[i].ip = servers[i].ip;
-            p.payload.server_discovery.servers[i].port = servers[i].port;
+            p.payload.server_list_update.servers[i].ip = servers[i].ip;
+            p.payload.server_list_update.servers[i].port = servers[i].port;
+            p.payload.server_list_update.servers[i].id = servers[i].id;
         }
 
         return p;

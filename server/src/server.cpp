@@ -14,9 +14,9 @@ std::mutex Server::s_stats_mutex;
 
 // ===== Constructor =====
 
-Server::Server(uint16_t port) : port(port) {
+Server::Server(uint16_t port, const std::string& ip) : port(port) {
     // Bind socket to port (throws if port already in use or permission denied)
-    if (!server_socket.initialize(port, true)) {
+    if (!server_socket.initialize(port, ip, true)) {
         throw std::runtime_error("Failed to initialize UDP socket");
     }
 
@@ -74,13 +74,23 @@ void Server::process_request(const Packet& packet, const SocketAddress& client_a
             std::cout << "\nReceived SERVER_DISCOVERY from " << client_addr.ip_string() << std::endl;
             handle_server_discovery(client_addr);
             break;
+        case SERVER_LIST_UPDATE:
+            std::cout << "\nReceived SERVER_LIST_UPDATE from " << client_addr.ip_string() << std::endl;
+            handle_server_list_update(packet);
+            break;
         // Other packet types (ACKs) are ignored (server doesn't expect ACKs from clients)
     }
 }
 
 // ===== Discovery handler =====
 
-void Server::handle_client_discovery(const SocketAddress& client_addr) {    
+void Server::handle_client_discovery(const SocketAddress& client_addr) {
+
+    if(!this->is_leader) {
+        // Not the leader: ignore discovery requests
+        return;
+    }
+
     // Attempt to register new client (insert returns false if already exists)
     if (clients.insert(client_addr.ip(), ClientInfo())) {
         // New client registered: update global balance to reflect new account
@@ -107,6 +117,12 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
 // ===== Transaction handler =====
 
 void Server::handle_transaction(const Packet& packet, const SocketAddress& client_addr) {
+
+    if(!this->is_leader) {
+        // Not the leader: ignore transaction requests
+        return;
+    }
+
     // Extract IPs in host byte order (packet stores network byte order)
     uint32_t src_client_ip = client_addr.ip();
     uint32_t dest_client_ip = packet.payload.request.destination_ip;
@@ -229,7 +245,7 @@ void Server::discover_backup_servers() {
     discovery_packet.type = SERVER_DISCOVERY;
     discovery_packet.request_id = 0;
 
-    server_socket.send(&discovery_packet, sizeof(Packet), SocketAddress::broadcast(this->port));
+    server_socket.send(&discovery_packet, sizeof(Packet), SocketAddress::broadcast(8080));
     
     // Wait for SERVER_DISCOVERY_ACK responses with timeout
     auto start_time = std::chrono::steady_clock::now(); // Start timer
@@ -242,19 +258,6 @@ void Server::discover_backup_servers() {
                 this->server_id = response_packet.payload.server_discovery.server_id;
                 this->sequence_counter = response_packet.payload.server_discovery.sequence_counter;
                 this->is_leader = false; // This server is a backup
-                this->backup_servers.clear();
-                // Populate backup_servers list from response
-                uint8_t server_count = response_packet.payload.server_discovery.server_count;
-                for (size_t i = 0; i < server_count; ++i) {
-                    ServerEntry entry = response_packet.payload.server_discovery.servers[i];
-                    SocketAddress server_address(entry.ip, ntohs(entry.port));
-                    this->backup_servers.push_back(ServerInfo{
-                        .address = server_address,
-                        .is_leader = (server_address.ip() == received_from_addr.ip()),
-                        .sequence_counter = response_packet.payload.server_discovery.sequence_counter,
-                        .id = response_packet.payload.server_discovery.server_id
-                    });
-                }
                 break;
             }
         }
@@ -264,7 +267,7 @@ void Server::discover_backup_servers() {
         // No response received: assume leader role
         // Add itself to backup_servers list
         this->backup_servers.push_back(ServerInfo{
-                    .address = SocketAddress("0.0.0.0", this->port),
+                    .address = SocketAddress(server_socket.sin_addr.ip(), this->port),
                     .is_leader = true,
                     .sequence_counter = this->sequence_counter,
                     .id = this->server_id
@@ -291,12 +294,40 @@ void Server::handle_server_discovery(const SocketAddress& server_addr) {
     for (const auto& server : backup_servers) {
         server_entries.push_back(ServerEntry{
             .ip = server.address.ip(),
-            .port = server.address.port()
+            .port = server.address.port(),
+            .id = server.id
         });
     }
 
     Packet reply_packet = Packet::create_server_discovery_reply(
-        SERVER_DISCOVERY_ACK, server_info.sequence_counter, server_info.id, backup_servers.size(), server_entries.data());
+        server_info.sequence_counter, server_info.id
+    );
     
     server_socket.send(&reply_packet, sizeof(reply_packet), server_addr);
+
+    Packet update_packet = Packet::create_server_list_update_reply(backup_servers.size(), server_entries.data());
+
+    // Broadcast SERVER_LIST_UPDATE to all backup servers
+    for (const auto& server : backup_servers) {
+        if (server.id != this->server_id) {
+            server_socket.send(&update_packet, sizeof(update_packet), server.address);
+        }
+    }
+}
+
+void Server::handle_server_list_update(const Packet& packet) {
+    
+    backup_servers.clear();
+    uint8_t server_count = packet.payload.server_list_update.server_count;
+    for (size_t i = 0; i < server_count; ++i) {
+        ServerEntry entry = packet.payload.server_list_update.servers[i];
+        SocketAddress server_address(entry.ip, ntohs(entry.port));
+        backup_servers.push_back(ServerInfo{
+            .address = server_address,
+            .is_leader = false,
+            .sequence_counter = 0,
+            .id = packet.payload.server_list_update.servers[i].id
+        });
+        std::cout << server_address.ip_string() << ":" << server_address.port() << std::endl;
+    }
 }

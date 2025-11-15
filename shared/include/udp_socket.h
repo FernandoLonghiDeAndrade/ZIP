@@ -159,7 +159,7 @@ public:
      * - Insufficient permissions (ports < 1024 require root/admin)
      * - Network subsystem unavailable
      */
-    bool initialize(uint16_t port, bool is_broadcast = false);
+    bool initialize(uint16_t port, const std::string& ip = "0.0.0.0", bool is_broadcast = false);
 
     /**
      * @brief ### Sends UDP datagram to specified destination. Thread-safe.
@@ -213,6 +213,8 @@ public:
      * - Can call initialize() again to reopen socket
      */
     void close_socket();
+
+    SocketAddress sin_addr;  ///< Stores the socket's bound address (IP and port)
 
 private:
     socket_t sock_fd = INVALID_SOCKET_VALUE;  ///< Socket handle (platform-independent)

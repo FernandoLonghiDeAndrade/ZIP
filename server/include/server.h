@@ -7,7 +7,7 @@
 /// Initial balance assigned to newly discovered clients (prevents negative balances on first transaction)
 constexpr uint32_t CLIENT_INITIAL_BALANCE = 100;
 
-constexpr uint32_t SERVER_TIMEOUT_DISCOVERY_ACK = 200; // timeout to wait for SERVER_DISCOVERY_ACK (ms)
+constexpr uint32_t SERVER_TIMEOUT_DISCOVERY_ACK = 2000; // timeout to wait for SERVER_DISCOVERY_ACK (ms)
 
 /**
  * @brief ### Per-client state maintained by the server.
@@ -50,8 +50,9 @@ public:
     /**
      * @brief ### Constructs the Server instance and binds to the specified port.
      * @param port UDP port to listen on (same port for discovery and transactions).
+     * @param ip IP address to bind the server socket to (default "0.0.0.0" for all interfaces).
      */
-    Server(uint16_t port);
+    Server(uint16_t port, const std::string& ip = "0.0.0.0");
 
     /**
      * @brief ### Starts the server's main execution loop (blocks indefinitely).
@@ -155,4 +156,5 @@ private:
     void discover_backup_servers(); ///< Discovers and populates backup_servers list
     void handle_server_discovery(const SocketAddress& server_addr); ///< Handles discovery requests on backup servers
     uint32_t get_server_id(const SocketAddress& server_addr); ///< Retrieves this server's unique ID from backup_servers list
+    void handle_server_list_update(const Packet& packet); ///< Handles server list update packets from leader
 };

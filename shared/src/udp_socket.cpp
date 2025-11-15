@@ -82,7 +82,7 @@ bool SocketAddress::is_valid() const {
 
 // ===== Socket initialization =====
 
-bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
+bool UDPSocket::initialize(uint16_t port, const std::string& ip, bool is_broadcast) {
     // Windows: Initialize Winsock library (process-wide, idempotent)
     // Linux: No-op
     init_winsock();
@@ -112,13 +112,16 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
     // Bind socket to port and all local interfaces (0.0.0.0)
     struct sockaddr_in bind_addr {};
     bind_addr.sin_family = AF_INET;
-    bind_addr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 = listen on all interfaces
+    inet_pton(AF_INET, ip.c_str(), &bind_addr.sin_addr);
     bind_addr.sin_port = htons(port);        // Convert to network byte order
 
     if (bind(sock_fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr)) < 0) {
         close_socket();
         return false;  // Port already in use or insufficient permissions
     }
+
+    // Store bound address information
+    sin_addr = SocketAddress(bind_addr);
 
     return true;
 }
