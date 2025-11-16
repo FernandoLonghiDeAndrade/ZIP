@@ -32,9 +32,9 @@ void Client::run() {
 
     // Phase 1: Discover server (either broadcast or direct connection)
     if (has_server_address) {
-        connect_to_known_server(); // Send DISCOVERY to specific IP
+        connect_to_known_server(); // Send CLIENT_DISCOVERY to specific IP
     } else {
-        discover_server(); // Broadcast DISCOVERY to 255.255.255.255
+        discover_server(); // Broadcast CLIENT_DISCOVERY to 255.255.255.255
     }
     
     // Phase 2: Spawn network thread to listen for ACKs asynchronously
@@ -55,25 +55,25 @@ void Client::run() {
 
 void Client::discover_server() {
     // Discovery packet has request_id = 0 (special value, not counted in next_request_id)
-    Packet discovery_packet;
-    discovery_packet.type = DISCOVERY;
-    discovery_packet.request_id = 0;
+    ClientPacket discovery_packet;
+    discovery_packet.type = CLIENT_DISCOVERY;
+    discovery_packet.payload.request.id = 0;
 
-    // Retry loop: send DISCOVERY every ACK_TIMEOUT_MS until server responds
+    // Retry loop: send CLIENT_DISCOVERY every ACK_TIMEOUT_MS until server responds
     while (!has_server_address) {
-        client_socket.send(&discovery_packet, sizeof(Packet), server_addr);
+        client_socket.send(&discovery_packet, ClientPacket::size(CLIENT_DISCOVERY), server_addr);
         
         // Non-blocking wait: allows retransmission if no response within timeout
         auto start_time = std::chrono::steady_clock::now(); // Start timer
         while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
-            // Check if DISCOVERY_ACK arrived (non-blocking receive)
-            Packet response_packet;
+            // Check if CLIENT_DISCOVERY_ACK arrived (non-blocking receive)
+            ClientPacket response_packet;
             SocketAddress received_from_addr;
-            if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
-                if (response_packet.type == DISCOVERY_ACK) {
+            if (client_socket.receive(&response_packet, ClientPacket::size(CLIENT_DISCOVERY_ACK), received_from_addr) > 0) {
+                if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                     // Success: store server's address for future transactions
                     this->server_addr = received_from_addr;
-                    this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
+                    this->next_request_id = response_packet.payload.request.id + 1; // Sync next_request_id with server's echo
                     this->has_server_address = true;
                     PrintUtils::print_discovery_reply(server_addr.ip());
                     return;
@@ -86,25 +86,25 @@ void Client::discover_server() {
 
 void Client::connect_to_known_server() {
     // Same as discover_server() but sends to specific IP instead of broadcast
-    Packet discovery_packet;
-    discovery_packet.type = DISCOVERY;
-    discovery_packet.request_id = 0;
+    ClientPacket discovery_packet;
+    discovery_packet.type = CLIENT_DISCOVERY;
+    discovery_packet.payload.request.id = 0;
 
     // Retry loop: server might not be ready yet or packets might be lost
     bool received_ack = false;
     while (!received_ack) {
-        client_socket.send(&discovery_packet, sizeof(Packet), server_addr);
+        client_socket.send(&discovery_packet, ClientPacket::size(CLIENT_DISCOVERY), server_addr);
         
-        // Wait for DISCOVERY_ACK from the specific server IP
+        // Wait for CLIENT_DISCOVERY_ACK from the specific server IP
         auto start_time = std::chrono::steady_clock::now(); // Start timer
         while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
-            Packet response_packet;
+            ClientPacket response_packet;
             SocketAddress received_from_addr;
-            if (client_socket.receive(&response_packet, sizeof(Packet), received_from_addr) > 0) {
-                if (response_packet.type == DISCOVERY_ACK) {
+            if (client_socket.receive(&response_packet, ClientPacket::size(CLIENT_DISCOVERY_ACK), received_from_addr) > 0) {
+                if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                     // Verify response came from expected server (could add IP validation here)
                     this->server_addr = received_from_addr;
-                    this->next_request_id = response_packet.request_id + 1; // Sync next_request_id with server's echo
+                    this->next_request_id = response_packet.payload.request.id + 1; // Sync next_request_id with server's echo
                     received_ack = true;
                     PrintUtils::print_discovery_reply(server_addr.ip());
                 }
@@ -143,7 +143,7 @@ void Client::run_user_input_loop() {
         }
 
         // Create packet and send with stop-and-wait retransmission
-        Packet request_packet = Packet::create_request(TRANSACTION_REQUEST, next_request_id, dest_addr.ip(), value);
+        ClientPacket request_packet = ClientPacket::create_request(TRANSACTION_REQUEST, next_request_id, dest_addr.ip(), value);
         send_request(request_packet); // Blocks until ACK received or send fails
 
         next_request_id++; // Increment for next transaction (wraps around at UINT32_MAX)
@@ -152,11 +152,11 @@ void Client::run_user_input_loop() {
 
 // ===== Request transmission with stop-and-wait =====
 
-void Client::send_request(const Packet& packet) {
+void Client::send_request(const ClientPacket& packet) {
     std::unique_lock<std::mutex> lock(pending_request_mutex); // Acquire lock for entire stop-and-wait cycle
     
     // Signal to network thread: "I'm waiting for ACK with this ID"
-    pending_ack_request_id.store(packet.request_id);
+    pending_ack_request_id.store(packet.payload.request.id);
     
     // Store packet for two reasons:
     // 1. Retransmission (if needed within this function)
@@ -164,9 +164,9 @@ void Client::send_request(const Packet& packet) {
     pending_request_packet = packet;
 
     // Stop-and-wait loop: retransmit every ACK_TIMEOUT_MS until ACK arrives
-    while (pending_ack_request_id.load() == packet.request_id) {
+    while (pending_ack_request_id.load() == packet.payload.request.id) {
         // Send packet to server
-        if (!client_socket.send(&packet, sizeof(Packet), server_addr)) {
+        if (!client_socket.send(&packet, ClientPacket::size(packet.type), server_addr)) {
             // Socket send failed (network error), abort this request
             pending_ack_request_id.store(0); // Clear pending state
             return;
@@ -187,7 +187,7 @@ void Client::send_request(const Packet& packet) {
 // ===== Response handling thread =====
 
 void Client::handle_server_responses() {
-    Packet response_packet;
+    ClientPacket response_packet;
     SocketAddress sender_addr;
 
     while (true) {
@@ -195,12 +195,12 @@ void Client::handle_server_responses() {
         // Socket is in blocking mode, so this doesn't spin CPU
         int32_t bytes_received;
         do {
-            bytes_received = client_socket.receive(&response_packet, sizeof(Packet), sender_addr);
+            bytes_received = client_socket.receive(&response_packet, sizeof(ClientPacket), sender_addr);
         } while (bytes_received < 1); // Retry if receive fails (shouldn't happen in blocking mode)
         
         // Fast path check: is this ACK for the current pending request?
         // Uses atomic load WITHOUT mutex for performance (hot path)
-        if (response_packet.request_id == pending_ack_request_id.load()) {
+        if (response_packet.payload.reply.id == pending_ack_request_id.load()) {
             {
                 // Acquire mutex to safely clear pending state
                 std::lock_guard<std::mutex> lock(pending_request_mutex);
@@ -215,7 +215,7 @@ void Client::handle_server_responses() {
                     // Success: print transaction details and new balance
                     PrintUtils::print_reply(
                         sender_addr.ip(),
-                        pending_request_packet.request_id,
+                        pending_request_packet.payload.request.id,
                         pending_request_packet.payload.request.destination_ip,
                         pending_request_packet.payload.request.value,
                         response_packet.payload.reply.new_balance

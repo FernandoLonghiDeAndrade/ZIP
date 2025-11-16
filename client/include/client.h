@@ -1,6 +1,6 @@
 #pragma once
 #include "udp_socket.h"
-#include "packet.h"
+#include "client_packet.h"
 #include <string>
 #include <thread>
 #include <mutex>
@@ -17,7 +17,7 @@ constexpr uint32_t ACK_TIMEOUT_MS = 200;
  * - Main thread: handles user input and sends requests
  * - Network thread: listens for and processes server responses
  * 
- * Discovery phase: broadcasts UDP packets until a server responds with DISCOVERY_ACK.
+ * Discovery phase: broadcasts UDP packets until a server responds with CLIENT_DISCOVERY_ACK.
  * Transaction phase: sends requests with automatic retransmission until ACK is received.
  */
 class Client {
@@ -43,18 +43,18 @@ private:
     // ===== Server Discovery =====
     
     /**
-     * @brief ### Broadcasts DISCOVERY packets until a server responds.
+     * @brief ### Broadcasts CLIENT_DISCOVERY packets until a server responds.
      * 
      * Sends to broadcast address (255.255.255.255) with exponential backoff.
-     * Blocks until DISCOVERY_ACK is received, then stores server address.
+     * Blocks until CLIENT_DISCOVERY_ACK is received, then stores server address.
      */
     void discover_server();
 
     /**
      * @brief ### Connects to a known server IP without broadcast discovery.
      * 
-     * Sends DISCOVERY packets directly to the specified IP address.
-     * Blocks until DISCOVERY_ACK is received from that server.
+     * Sends CLIENT_DISCOVERY packets directly to the specified IP address.
+     * Blocks until CLIENT_DISCOVERY_ACK is received from that server.
      */
     void connect_to_known_server();
 
@@ -95,13 +95,13 @@ private:
      * 
      * @param packet The request packet to send (TRANSACTION_REQUEST).
      */
-    void send_request(const Packet& packet);
+    void send_request(const ClientPacket& packet);
 
     // ===== Server Connection State =====
     
     UDPSocket client_socket;                ///< UDP socket with broadcast capability enabled
     SocketAddress server_addr;              ///< Server's address (populated during discovery phase)
-    bool has_server_address;                ///< True after DISCOVERY_ACK received, false otherwise
+    bool has_server_address;                ///< True after CLIENT_DISCOVERY_ACK received, false otherwise
     uint32_t next_request_id;               ///< Monotonically increasing ID for outgoing requests (starts at 1)
 
     // ===== Threading =====
@@ -115,5 +115,5 @@ private:
     std::condition_variable ack_received_cv;		///< Signals when ACK arrives (wakes up send_request())
     std::atomic<uint32_t> pending_ack_request_id;	///< Request ID waiting for ACK (0 = none pending)
 													///< Atomic allows lock-free reads in network thread hot path
-    Packet pending_request_packet;                  ///< Copy of current request (used for retransmission and printing results)
+    ClientPacket pending_request_packet;            ///< Copy of current request (used for retransmission and printing results)
 };

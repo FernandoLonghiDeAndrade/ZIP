@@ -1,23 +1,10 @@
 #pragma once
 #include "udp_socket.h"
 #include "locked_map.h"
-#include "packet.h"
+#include "client_info.h"
+#include "client_packet.h"
+#include "server_packet.h"
 #include <mutex>
-
-/// Initial balance assigned to newly discovered clients (prevents negative balances on first transaction)
-constexpr uint32_t CLIENT_INITIAL_BALANCE = 100;
-
-/**
- * @brief ### Per-client state maintained by the server.
- * 
- * Tracks request ID for idempotency (duplicate detection) and current balance.
- * Stored in LockedMap with per-entry reader-writer locks for concurrent access.
- */
-struct ClientInfo {
-    uint32_t last_processed_request_id = 0;		///< Last processed request ID (for duplicate detection)
-                                                ///< 0 = no requests processed yet
-    uint32_t balance = CLIENT_INITIAL_BALANCE;  ///< Current balance (decremented on send, incremented on receive)
-};
 
 /**
  * @brief ### Multi-threaded UDP server implementing the ZIP transaction protocol.
@@ -30,10 +17,10 @@ struct ClientInfo {
  * Concurrency guarantees:
  * - Multiple transactions can execute in parallel if they involve different clients
  * - Transactions involving the same client(s) are serialized via LockedMap locks
- * - Bank statistics (s_num_transactions, s_total_transferred, s_total_balance) protected by s_stats_mutex
+ * - Bank statistics (num_transactions, total_transferred, total_balance) protected by stats_mutex
  * 
  * Protocol phases:
- * 1. Discovery: Client broadcasts DISCOVERY, server responds with DISCOVERY_ACK
+ * 1. Discovery: Client broadcasts CLIENT_DISCOVERY, server responds with CLIENT_DISCOVERY_ACK
  * 2. Transactions: Client sends TRANSACTION_REQUEST, server validates and responds with appropriate ACK
  */
 class Server {
@@ -54,45 +41,54 @@ public:
 
 private:
     // ===== Main Execution =====
+
+    /**
+     * @brief ### Discovers the leader server in the cluster.
+     * 
+     * Broadcasts discovery packet.
+     * Waits for leader's response.
+     * Tries 3 times. If no response is received, elects itself as the leader.
+     */
+    void discover_leader_server();
     
     /**
      * @brief ### [Main thread] Infinite loop that receives packets and spawns worker threads.
      * 
      * For each incoming packet:
      * 1. Blocks on socket.receive() waiting for next packet
-     * 2. Spawns detached thread running process_request()
+     * 2. Spawns detached thread running process_client_packet()
      * 3. Immediately returns to listening (doesn't wait for thread to finish)
      * 
      * Worker threads handle request processing asynchronously.
      */
     void run_listening_loop();
     
+    // ===== Client Packet Handlers =====
+
     /**
-     * @brief ### [Worker thread] Dispatches request to appropriate handler based on packet type.
+     * @brief ### [Worker thread] Dispatches packet to appropriate handler based on packet type.
      * 
      * Thread lifecycle:
      * 1. Spawned by run_listening_loop() for each incoming packet
      * 2. Detached immediately (no join() required)
-     * 3. Processes request and terminates automatically
+     * 3. Processes packet and terminates automatically
      * 
-     * @param packet The request packet received from client.
-     * @param client_addr Client's address (used for sending ACK response).
+     * @param packet The packet received.
+     * @param client_addr Address of the sender (used for sending ACK response).
      */
-    void process_request(const Packet& packet, const SocketAddress& client_addr);
-
-    // ===== Request Handlers =====
+    void process_client_packet(const ClientPacket& packet, const SocketAddress& client_addr);
     
     /**
-     * @brief ### Handles DISCOVERY packet: registers client and sends DISCOVERY_ACK.
+     * @brief ### Handles client's CLIENT_DISCOVERY packet: registers client and sends CLIENT_DISCOVERY_ACK.
      * 
      * Behavior:
      * - If client doesn't exist: inserts into clients map with initial balance
      * - If client exists: does nothing (idempotent)
-     * - Always sends DISCOVERY_ACK response (even if client already registered)
+     * - Always sends CLIENT_DISCOVERY_ACK response (even if client already registered)
      * 
      * @param client_addr Client's IP address (used as key in clients map).
      */
-    void handle_discovery(const SocketAddress& client_addr);
+    void handle_client_discovery(const SocketAddress& client_addr);
 
     /**
      * @brief ### Handles TRANSACTION_REQUEST: validates, executes, and sends appropriate ACK.
@@ -102,7 +98,7 @@ private:
      * 2. Check for duplicate request (request_id <= last_processed_request_id) -> send cached response
      * 3. Check sender has sufficient balance -> INSUFFICIENT_BALANCE_ACK if not
      * 4. Execute transaction atomically (debit sender, credit receiver)
-     * 5. Update bank statistics under s_stats_mutex
+     * 5. Update bank statistics under stats_mutex
      * 6. Send TRANSACTION_ACK with new sender balance
      * 
      * Concurrency:
@@ -113,7 +109,27 @@ private:
      * @param packet Transaction packet containing destination IP and value.
      * @param client_addr Sender's address (source of funds).
      */
-    void handle_transaction(const Packet& packet, const SocketAddress& client_addr);
+    void handle_transaction(const ClientPacket& packet, const SocketAddress& client_addr);
+
+    // ===== Server Packet Handlers =====
+
+    void process_server_packet(const ServerPacket& packet, const SocketAddress& server_addr);
+
+    void handle_server_discovery(const SocketAddress& server_addr);
+    
+    void handle_state_sync_request(const SocketAddress& server_addr);
+
+    void handle_new_server(const SocketAddress& server_addr);
+
+    void handle_new_transaction(const SocketAddress& server_addr);
+
+    // ===== Leader Election =====
+
+    void request_election();
+
+    void handle_election_request(const SocketAddress& server_addr);
+
+    void handle_coordinator(const SocketAddress& server_addr);
 
     // ===== Server State =====
     
@@ -124,16 +140,22 @@ private:
     
     /// Map of all registered clients, keyed by IP address (network byte order)
     /// Uses fine-grained per-entry locks for concurrent transaction processing
-    static LockedMap<uint32_t, ClientInfo> clients;
+    LockedMap<uint32_t, ClientInfo> clients;
     
-    /// Global bank statistics (protected by s_stats_mutex)
-    static uint32_t s_num_transactions;		///< Total transactions processed successfully (excludes duplicates and failures)
-    static uint64_t s_total_transferred;  	///< Sum of all transaction values (cumulative, never decreases)
-    static uint64_t s_total_balance;      	///< Sum of all client balances (should remain constant = num_clients * INITIAL_BALANCE)
+    /// Global bank statistics (protected by stats_mutex)
+    uint32_t num_transactions;	///< Total transactions processed successfully (excludes duplicates and failures)
+    uint64_t total_transferred;  	///< Sum of all transaction values (cumulative, never decreases)
+    uint64_t total_balance;      	///< Sum of all client balances (should remain constant = num_clients * INITIAL_BALANCE)
 
     // ===== Synchronization =====
     
-    /// Protects global statistics (s_num_transactions, s_total_transferred, s_total_balance)
+    /// Protects global statistics (num_transactions, total_transferred, total_balance)
     /// Not needed for clients map (LockedMap has internal locking)
-    static std::mutex s_stats_mutex;
+    std::mutex stats_mutex;
+
+    // ===== Backup Servers =====
+
+    std::vector<SocketAddress> servers; ///< List of known servers in the cluster
+    uint32_t server_id;                 ///< Identifies the entry of this server in the servers vector
+    uint32_t leader_id;                 ///< Identifies the entry of current leader server in the servers vector
 };

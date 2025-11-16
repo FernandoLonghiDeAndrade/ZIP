@@ -28,12 +28,12 @@ void PrintUtils::print_server_state(uint32_t num_transactions, uint64_t total_tr
               << " total_balance " << total_balance << std::endl;
 }
 
-void PrintUtils::print_request(uint32_t client_ip, const Packet& packet, bool is_duplicate, uint32_t num_transactions, uint64_t total_transferred, uint64_t total_balance) {
+void PrintUtils::print_request(uint32_t client_ip, const ClientPacket& packet, bool is_duplicate, uint32_t num_transactions, uint64_t total_transferred, uint64_t total_balance) {
     // Line 1: Transaction details with duplicate marker if applicable
     print_timestamp();
     std::cout << " client " << SocketAddress(client_ip).ip_string()             // Convert host -> network byte order for display
               << (is_duplicate ? " DUP!!" : "")                                 // Mark retransmissions
-              << " id_req " << packet.request_id
+              << " id_req " << packet.payload.request.id
               << " dest " << SocketAddress(packet.payload.request.destination_ip).ip_string()  // Already in network byte order
               << " value " << packet.payload.request.value << std::endl;
     

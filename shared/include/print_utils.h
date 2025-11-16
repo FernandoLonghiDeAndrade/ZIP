@@ -1,5 +1,5 @@
 #pragma once
-#include "packet.h"
+#include "client_packet.h"
 #include <cstdint>
 
 /**
@@ -38,7 +38,7 @@ namespace PrintUtils {
      * @param total_transferred Current total transferred (unchanged if duplicate)
      * @param total_balance Current total balance (invariant: remains constant across transactions)
      */
-    void print_request(uint32_t client_ip, const Packet& packet, bool is_duplicate, uint32_t num_transactions, uint64_t total_transferred, uint64_t total_balance);
+    void print_request(uint32_t client_ip, const ClientPacket& packet, bool is_duplicate, uint32_t num_transactions, uint64_t total_transferred, uint64_t total_balance);
 
     /**
      * @brief ### [Client] Prints transaction result after receiving TRANSACTION_ACK.
@@ -58,7 +58,7 @@ namespace PrintUtils {
      * @brief ### [Client] Prints server discovery confirmation.
      * 
      * Output format: "YYYY-MM-DD HH:MM:SS server_addr <IP>"
-     * Called after receiving DISCOVERY_ACK (discovery phase complete).
+     * Called after receiving CLIENT_DISCOVERY_ACK (discovery phase complete).
      * 
      * @param server_ip Server's IP in network byte order (will be converted to dotted notation)
      */
