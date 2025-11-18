@@ -55,21 +55,19 @@ void Client::run() {
 
 void Client::discover_server() {
     // Discovery packet has request_id = 0 (special value, not counted in next_request_id)
-    ClientPacket discovery_packet;
-    discovery_packet.type = CLIENT_DISCOVERY;
-    discovery_packet.payload.request.id = 0;
+    ClientPacket discovery_packet(CLIENT_DISCOVERY);
 
     // Retry loop: send CLIENT_DISCOVERY every ACK_TIMEOUT_MS until server responds
     while (!has_server_address) {
-        client_socket.send(&discovery_packet, ClientPacket::size(CLIENT_DISCOVERY), server_addr);
+        client_socket.send(&discovery_packet, discovery_packet.size(), server_addr);
         
         // Non-blocking wait: allows retransmission if no response within timeout
         auto start_time = std::chrono::steady_clock::now(); // Start timer
         while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
             // Check if CLIENT_DISCOVERY_ACK arrived (non-blocking receive)
-            ClientPacket response_packet;
+            ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
             SocketAddress received_from_addr;
-            if (client_socket.receive(&response_packet, ClientPacket::size(CLIENT_DISCOVERY_ACK), received_from_addr) > 0) {
+            if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr) > 0) {
                 if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                     // Success: store server's address for future transactions
                     this->server_addr = received_from_addr;
@@ -86,21 +84,19 @@ void Client::discover_server() {
 
 void Client::connect_to_known_server() {
     // Same as discover_server() but sends to specific IP instead of broadcast
-    ClientPacket discovery_packet;
-    discovery_packet.type = CLIENT_DISCOVERY;
-    discovery_packet.payload.request.id = 0;
+    ClientPacket discovery_packet(CLIENT_DISCOVERY);
 
     // Retry loop: server might not be ready yet or packets might be lost
     bool received_ack = false;
     while (!received_ack) {
-        client_socket.send(&discovery_packet, ClientPacket::size(CLIENT_DISCOVERY), server_addr);
+        client_socket.send(&discovery_packet, discovery_packet.size(), server_addr);
         
         // Wait for CLIENT_DISCOVERY_ACK from the specific server IP
         auto start_time = std::chrono::steady_clock::now(); // Start timer
         while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
-            ClientPacket response_packet;
+            ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
             SocketAddress received_from_addr;
-            if (client_socket.receive(&response_packet, ClientPacket::size(CLIENT_DISCOVERY_ACK), received_from_addr) > 0) {
+            if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr) > 0) {
                 if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                     // Verify response came from expected server (could add IP validation here)
                     this->server_addr = received_from_addr;
@@ -143,7 +139,7 @@ void Client::run_user_input_loop() {
         }
 
         // Create packet and send with stop-and-wait retransmission
-        ClientPacket request_packet = ClientPacket::create_request(TRANSACTION_REQUEST, next_request_id, dest_addr.ip(), value);
+        ClientPacket request_packet = ClientPacket::create_request(next_request_id, dest_addr.ip(), value);
         send_request(request_packet); // Blocks until ACK received or send fails
 
         next_request_id++; // Increment for next transaction (wraps around at UINT32_MAX)
@@ -166,7 +162,7 @@ void Client::send_request(const ClientPacket& packet) {
     // Stop-and-wait loop: retransmit every ACK_TIMEOUT_MS until ACK arrives
     while (pending_ack_request_id.load() == packet.payload.request.id) {
         // Send packet to server
-        if (!client_socket.send(&packet, ClientPacket::size(packet.type), server_addr)) {
+        if (!client_socket.send(&packet, packet.size(), server_addr)) {
             // Socket send failed (network error), abort this request
             pending_ack_request_id.store(0); // Clear pending state
             return;

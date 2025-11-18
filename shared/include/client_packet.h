@@ -45,7 +45,7 @@ struct ReplyPayload {
 /**
  * @brief ### Main packet structure for all Client-Server communication.
  * 
- * Payload is a union (only one variant is valid depending on packet type)
+ * Payload is a union (only one variant is valid depending on packet type).
  */
 struct ClientPacket {
     ClientPacketType type;  ///< Discriminator for the Payload union (determines which variant is valid)
@@ -56,9 +56,18 @@ struct ClientPacket {
      * Only one member is valid at a time
      */
     union {
-        RequestPayload request;          ///< Valid for TRANSACTION_REQUEST packets
-        ReplyPayload reply;              ///< Valid for CLIENT_DISCOVERY_ACK and TRANSACTION_ACK packets
+        RequestPayload request; ///< Valid for TRANSACTION_REQUEST packets
+        ReplyPayload reply;     ///< Valid for CLIENT_DISCOVERY_ACK and TRANSACTION_ACK packets
     } payload;
+
+    /**
+     * @brief ### Constructor to initialize packet with type.
+     * 
+     * @param type Packet type to set.
+     */
+    ClientPacket(ClientPacketType type) : type(type) {}
+
+    ClientPacket() = default;
 
     /**
      * @brief ### Factory method for creating request packets (client -> server).
@@ -67,15 +76,13 @@ struct ClientPacket {
      * - CLIENT_DISCOVERY (dest_ip and value are ignored, can be 0)
      * - TRANSACTION_REQUEST (dest_ip and value are required)
      * 
-     * @param type Packet type (should be CLIENT_DISCOVERY or TRANSACTION_REQUEST)
-     * @param request_id Client's sequence number (0 for CLIENT_DISCOVERY, 1+ for transactions)
-     * @param dest_ip Destination client IP in network byte order (ignored for CLIENT_DISCOVERY)
-     * @param value Amount to transfer (ignored for CLIENT_DISCOVERY)
+     * @param request_id Client's sequence number
+     * @param dest_ip Destination client IP in network byte order
+     * @param value Amount to transfer
      * @return Initialized request packet ready to send
      */
-    static ClientPacket create_request(ClientPacketType type, uint32_t request_id, uint32_t dest_ip, uint32_t value) {
-        ClientPacket p;
-        p.type = type;
+    static ClientPacket create_request(uint32_t request_id, uint32_t dest_ip, uint32_t value) {
+        ClientPacket p(TRANSACTION_REQUEST);
         p.payload.request.id = request_id;
         p.payload.request.destination_ip = dest_ip;
         p.payload.request.value = value;
@@ -98,26 +105,30 @@ struct ClientPacket {
      * @return Initialized reply packet ready to send
      */
     static ClientPacket create_reply(ClientPacketType type, uint32_t request_id, uint32_t balance) {
-        ClientPacket p;
-        p.type = type;
+        ClientPacket p(type);
         p.payload.reply.id = request_id;
         p.payload.reply.new_balance = balance;
         return p;
     }
 
-    static size_t size(ClientPacketType type) {
-        size_t type_size = sizeof(ClientPacketType);
-        size_t request_id_size = sizeof(uint32_t);
-
-        if (type == TRANSACTION_REQUEST) {
-            // RequestPayload size
-            return type_size + request_id_size + sizeof(RequestPayload);
-        } else if (type == CLIENT_DISCOVERY_ACK or type == TRANSACTION_ACK) {
-            // ReplyPayload size
-            return type_size + request_id_size + sizeof(ReplyPayload);
-        } else {
-            // No payload
-            return type_size;
+    /**
+     * @brief ### Calculate exact packet size for efficient UDP transmission.
+     * 
+     * @return Size in bytes of the serialized packet (type + active payload).
+     */
+    size_t size() const {
+        size_t base_size = sizeof(ClientPacketType);
+        
+        switch (type) {            
+            case TRANSACTION_REQUEST:
+                return base_size + sizeof(RequestPayload);
+            
+            case CLIENT_DISCOVERY_ACK:
+            case TRANSACTION_ACK:
+                return base_size + sizeof(ReplyPayload);
+            
+            default:
+                return base_size;
         }
     }
 };

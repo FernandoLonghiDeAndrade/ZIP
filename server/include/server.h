@@ -6,6 +6,9 @@
 #include "server_packet.h"
 #include <mutex>
 
+/// Timeout duration for ACK reception before retransmitting a request (milliseconds)
+constexpr uint32_t TIMEOUT_MS = 200;
+
 /**
  * @brief ### Multi-threaded UDP server implementing the ZIP transaction protocol.
  * 
@@ -50,6 +53,8 @@ private:
      * Tries 3 times. If no response is received, elects itself as the leader.
      */
     void discover_leader_server();
+
+    void handle_server_discovery_ack();
     
     /**
      * @brief ### [Main thread] Infinite loop that receives packets and spawns worker threads.
@@ -119,9 +124,9 @@ private:
     
     void handle_state_sync_request(const SocketAddress& server_addr);
 
-    void handle_new_server(const SocketAddress& server_addr);
+    void handle_new_server_sync(const SocketAddress& server_addr);
 
-    void handle_new_transaction(const SocketAddress& server_addr);
+    void handle_new_transaction_sync(const SocketAddress& server_addr);
 
     // ===== Leader Election =====
 
