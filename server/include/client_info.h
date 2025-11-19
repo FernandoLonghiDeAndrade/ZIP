@@ -14,4 +14,7 @@ struct ClientInfo {
     uint32_t last_processed_request_id = 0;		///< Last processed request ID (for duplicate detection)
                                                 ///< 0 = no requests processed yet
     uint32_t balance = CLIENT_INITIAL_BALANCE;  ///< Current balance (decremented on send, incremented on receive)
+    uint16_t port;                              ///< Client's port number (needed for new leader notification)
+
+    ClientInfo(uint16_t port = 0) : port(port) {}
 };

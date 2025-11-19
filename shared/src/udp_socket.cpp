@@ -5,8 +5,8 @@
     #include <ws2tcpip.h>
     
     /**
-     * Windows-specific: Winsock2 requires WSAStartup() before any socket operations.
-     * This is called once per process (not per socket).
+     * Windows-specific: Winsock2 requires WSAStartup() before any address operations.
+     * This is called once per process (not per address).
      * Thread-safe via static bool guard (potential race on first call, but benign).
      */
     static bool winsock_initialized = false;
@@ -82,6 +82,45 @@ bool SocketAddress::is_valid() const {
 
 // ===== Socket initialization =====
 
+uint32_t UDPSocket::ip() const {
+    if (sock_fd == INVALID_SOCKET_VALUE) {
+        return 0;
+    }
+
+    struct sockaddr_in local_addr;
+    socklen_t addr_len = sizeof(local_addr);
+    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) {
+        return 0;
+    }
+    return local_addr.sin_addr.s_addr;
+}
+
+uint16_t UDPSocket::port() const {
+    if (sock_fd == INVALID_SOCKET_VALUE) {
+        return 0;
+    }
+
+    struct sockaddr_in local_addr;
+    socklen_t addr_len = sizeof(local_addr);
+    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) {
+        return 0;
+    }
+    return ntohs(local_addr.sin_port);
+}
+
+SocketAddress UDPSocket::address() const {
+    if (sock_fd == INVALID_SOCKET_VALUE) {
+        return SocketAddress();
+    }
+
+    struct sockaddr_in local_addr;
+    socklen_t addr_len = sizeof(local_addr);
+    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) {
+        return SocketAddress();
+    }
+    return SocketAddress(local_addr);
+}
+
 bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
     // Windows: Initialize Winsock library (process-wide, idempotent)
     // Linux: No-op
@@ -109,7 +148,7 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
         }
     }
 
-    // Bind socket to port and all local interfaces (0.0.0.0)
+    // Bind address to port and all local interfaces (0.0.0.0)
     struct sockaddr_in bind_addr {};
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 = listen on all interfaces
@@ -148,7 +187,7 @@ bool UDPSocket::send(const void* data, size_t size, const SocketAddress& dest_ad
 
 // ===== Receive data =====
 
-int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr) {
+int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr, uint32_t timeout_ms) {
     // Validate input parameters
     if (!buffer || size == 0 || sock_fd == INVALID_SOCKET_VALUE) {
         return -1;
@@ -157,6 +196,27 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
     // Serialize receives (only one thread can receive at a time)
     // Note: Doesn't block sends (separate mutex)
     std::lock_guard<std::mutex> lock(receive_mutex);
+    
+    // Setup select/poll for timeout handling
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(sock_fd, &read_fds);
+    
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    
+    // Wait for data with timeout (0 = no timeout, blocks until data arrives)
+    int select_result = select(sock_fd + 1, &read_fds, nullptr, nullptr, 
+                               timeout_ms > 0 ? &tv : nullptr);
+    
+    if (select_result < 0) {
+        // select() error
+        return -1;
+    } else if (select_result == 0) {
+        // Timeout occurred, no data available
+        return 0;
+    }
     
     // Receive UDP datagram from any sender (non-blocking)
     struct sockaddr_in native_addr;
@@ -170,7 +230,7 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
             // No data available (non-blocking mode, not an error)
             return 0;
         }
-        // Real error (socket closed, network error, etc.)
+        // Real error (address closed, network error, etc.)
         return -1;
     }
     
@@ -182,11 +242,11 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
     return static_cast<int32_t>(received_bytes);
 }
 
-// ===== Close socket =====
+// ===== Close address =====
 
 void UDPSocket::close_socket() {
     // Acquire send_mutex to prevent concurrent send operations during close
-    // (receive_mutex not needed since closing invalidates socket for both)
+    // (receive_mutex not needed since closing invalidates address for both)
     std::lock_guard<std::mutex> lock(send_mutex);
     
     if (sock_fd != INVALID_SOCKET_VALUE) {

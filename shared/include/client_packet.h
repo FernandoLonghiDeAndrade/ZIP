@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "socket_address.h"
 
 /**
  * @brief ### Packet types for Client-Server communication.
@@ -17,6 +18,9 @@ enum ClientPacketType : uint8_t {
     INSUFFICIENT_BALANCE_ACK,  ///< Server -> Client: Transaction rejected (not enough funds)
     INVALID_CLIENT_ACK,        ///< Server -> Client: Transaction rejected (destination doesn't exist)
     ERROR_ACK,                 ///< Server -> Client: Transaction rejected (server error)
+
+    // New leader notification
+    NEW_LEADER                 ///< Server -> Client: Notify client of new leader server
 };
 
 /**
@@ -43,6 +47,16 @@ struct ReplyPayload {
 };
 
 /**
+ * @brief ### Payload for new leader notification packets (Server -> Client).
+ * 
+ * Used for NEW_LEADER packets.
+ * Contains new leader server's address.
+ */
+struct NewLeaderPayload {
+    SocketAddress addr;  ///< New leader server's address
+};
+
+/**
  * @brief ### Main packet structure for all Client-Server communication.
  * 
  * Payload is a union (only one variant is valid depending on packet type).
@@ -56,8 +70,9 @@ struct ClientPacket {
      * Only one member is valid at a time
      */
     union {
-        RequestPayload request; ///< Valid for TRANSACTION_REQUEST packets
-        ReplyPayload reply;     ///< Valid for CLIENT_DISCOVERY_ACK and TRANSACTION_ACK packets
+        RequestPayload request;      ///< Valid for TRANSACTION_REQUEST packets
+        ReplyPayload reply;          ///< Valid for CLIENT_DISCOVERY_ACK and TRANSACTION_ACK packets
+        NewLeaderPayload new_leader; ///< Valid for NEW_LEADER packets
     } payload;
 
     /**
@@ -65,16 +80,15 @@ struct ClientPacket {
      * 
      * @param type Packet type to set.
      */
-    ClientPacket(ClientPacketType type) : type(type) {}
+    ClientPacket(ClientPacketType type) : type(type), payload{0} {}
 
-    ClientPacket() = default;
+    ClientPacket() : payload{0} {}
 
     /**
      * @brief ### Factory method for creating request packets (client -> server).
      * 
      * Use this for:
-     * - CLIENT_DISCOVERY (dest_ip and value are ignored, can be 0)
-     * - TRANSACTION_REQUEST (dest_ip and value are required)
+     * - TRANSACTION_REQUEST
      * 
      * @param request_id Client's sequence number
      * @param dest_ip Destination client IP in network byte order
@@ -92,14 +106,11 @@ struct ClientPacket {
     /**
      * @brief ### Factory method for creating reply packets (server -> client).
      * 
-     * Use this for all ACK types:
+     * Use this for:
      * - CLIENT_DISCOVERY_ACK: balance = current client balance
      * - TRANSACTION_ACK: balance = sender's new balance after debit
-     * - INSUFFICIENT_BALANCE_ACK: balance = sender's balance (unchanged)
-     * - INVALID_CLIENT_ACK: balance = sender's balance (unchanged)
-     * - ERROR_ACK: balance = sender's balance (unchanged)
      * 
-     * @param type ACK packet type (CLIENT_DISCOVERY_ACK, TRANSACTION_ACK, etc.)
+     * @param type ACK packet type (CLIENT_DISCOVERY_ACK or TRANSACTION_ACK)
      * @param request_id Echo of the request_id from the original request
      * @param balance Client's balance (interpretation depends on ACK type, see above)
      * @return Initialized reply packet ready to send
@@ -108,6 +119,21 @@ struct ClientPacket {
         ClientPacket p(type);
         p.payload.reply.id = request_id;
         p.payload.reply.new_balance = balance;
+        return p;
+    }
+
+    /**
+     * @brief ### Factory method for creating new leader notification packets (server -> client).
+     * 
+     * Use this for:
+     * - NEW_LEADER
+     * 
+     * @param new_leader_addr Address of the new leader server
+     * @return Initialized new leader packet ready to send
+     */
+    static ClientPacket create_new_leader(const SocketAddress& new_leader_addr) {
+        ClientPacket p(NEW_LEADER);
+        p.payload.new_leader.addr = new_leader_addr;
         return p;
     }
 
@@ -125,8 +151,11 @@ struct ClientPacket {
             
             case CLIENT_DISCOVERY_ACK:
             case TRANSACTION_ACK:
-                return base_size + sizeof(ReplyPayload);
+                return base_size + sizeof(ReplyPayload) - sizeof(uint16_t); // Doesn't send port number
             
+            case NEW_LEADER:
+                return base_size + sizeof(NewLeaderPayload);
+
             default:
                 return base_size;
         }

@@ -43,18 +43,18 @@ void PrintUtils::print_request(uint32_t client_ip, const ClientPacket& packet, b
               << " total_balance " << total_balance << std::endl;
 }
 
-void PrintUtils::print_reply(uint32_t server_ip, uint32_t request_id, uint32_t dest_ip, uint32_t value, uint32_t new_balance) {
+void PrintUtils::print_reply(uint32_t ip, uint32_t request_id, uint32_t dest_ip, uint32_t value, uint32_t new_balance) {
     // Single line: successful transaction confirmation with updated balance
     print_timestamp();
-    std::cout << " server " << SocketAddress(server_ip).ip_string()      // Already in network byte order
+    std::cout << " server " << SocketAddress(ip).ip_string()      // Already in network byte order
               << " id_req " << request_id
               << " dest " << SocketAddress(dest_ip).ip_string()          // Already in network byte order
               << " value " << value 
               << " new_balance " << new_balance << std::endl << std::endl;  // Extra newline for readability
 }
 
-void PrintUtils::print_discovery_reply(uint32_t server_ip) {
+void PrintUtils::print_discovery_reply(uint32_t ip) {
     // Single line: discovery phase completed
     print_timestamp();
-    std::cout << " server_addr " << SocketAddress(server_ip).ip_string() << std::endl << std::endl;  // Extra newline for readability
+    std::cout << " server_addr " << SocketAddress(ip).ip_string() << std::endl << std::endl;  // Extra newline for readability
 }

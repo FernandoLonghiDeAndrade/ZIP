@@ -46,13 +46,13 @@ namespace PrintUtils {
      * Output format: "YYYY-MM-DD HH:MM:SS server <IP> id_req X dest <IP> value Y new_balance Z"
      * Called only after successful transaction (not for error ACKs).
      * 
-     * @param server_ip Server's IP in network byte order (will be converted to dotted notation)
+     * @param ip Server's IP in network byte order (will be converted to dotted notation)
      * @param request_id Echo of the request_id sent in original TRANSACTION_REQUEST
      * @param dest_ip Destination client IP in network byte order (from original request)
      * @param value Transaction amount (from original request)
      * @param new_balance Client's updated balance after debit (from TRANSACTION_ACK payload)
      */
-    void print_reply(uint32_t server_ip, uint32_t request_id, uint32_t dest_ip, uint32_t value, uint32_t new_balance);
+    void print_reply(uint32_t ip, uint32_t request_id, uint32_t dest_ip, uint32_t value, uint32_t new_balance);
     
     /**
      * @brief ### [Client] Prints server discovery confirmation.
@@ -60,7 +60,7 @@ namespace PrintUtils {
      * Output format: "YYYY-MM-DD HH:MM:SS server_addr <IP>"
      * Called after receiving CLIENT_DISCOVERY_ACK (discovery phase complete).
      * 
-     * @param server_ip Server's IP in network byte order (will be converted to dotted notation)
+     * @param ip Server's IP in network byte order (will be converted to dotted notation)
      */
-    void print_discovery_reply(uint32_t server_ip);
+    void print_discovery_reply(uint32_t ip);
 }

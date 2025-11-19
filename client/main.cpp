@@ -5,14 +5,14 @@
 /**
  * @brief Client entry point - connects to server and sends transactions.
  * 
- * Usage: ./client <server_port> [server_ip]
+ * Usage: ./client <server_port> [ip]
  * Examples:
  *   ./client 8080                  # Broadcast discovery
  *   ./client 8080 192.168.1.100    # Direct connection
  */
 int main(int argc, char* argv[]) {
     if (argc < 2 || argc > 3) {
-        std::cerr << "Usage: " << argv[0] << " <server_port> [server_ip]" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <server_port> [ip]" << std::endl;
         return 1;
     }
 

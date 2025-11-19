@@ -8,7 +8,7 @@
 #include <atomic>
 
 /// Timeout duration for ACK reception before retransmitting a request (milliseconds)
-constexpr uint32_t ACK_TIMEOUT_MS = 200;
+constexpr uint32_t ACK_TIMEOUT_MS = 100;
 
 /**
  * @brief ### UDP client implementing stop-and-wait ARQ protocol for reliable communication.
@@ -25,9 +25,9 @@ public:
     /**
      * @brief ### Constructs a Client instance.
      * @param server_port Port number where the server listens (same for discovery and transactions).
-     * @param server_ip Optional server IP address. If empty, client performs broadcast discovery.
+     * @param ip Optional server IP address. If empty, client performs broadcast discovery.
      */
-    Client(uint16_t server_port, const std::string& server_ip = "");
+    Client(uint16_t server_port, const std::string& ip = "");
 
     /**
      * @brief ### Starts client execution: discovers server, spawns network thread, handles user input.
@@ -73,7 +73,7 @@ private:
      * @brief ### [Network thread] Listens for server responses and processes ACKs.
      * 
      * Runs in infinite loop:
-     * 1. Blocks on socket.receive() waiting for packets
+     * 1. Blocks on address.receive() waiting for packets
      * 2. Checks if response matches pending_ack_request_id
      * 3. If match: stops retransmission, prints result, notifies main thread
      * 4. If no match: ignores packet (duplicate or out-of-order)
@@ -99,7 +99,7 @@ private:
 
     // ===== Server Connection State =====
     
-    UDPSocket client_socket;                ///< UDP socket with broadcast capability enabled
+    UDPSocket client_socket;                ///< UDP address with broadcast capability enabled
     SocketAddress server_addr;              ///< Server's address (populated during discovery phase)
     bool has_server_address;                ///< True after CLIENT_DISCOVERY_ACK received, false otherwise
     uint32_t next_request_id;               ///< Monotonically increasing ID for outgoing requests (starts at 1)

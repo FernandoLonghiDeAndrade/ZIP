@@ -6,13 +6,13 @@
 
 // ===== Constructor =====
 
-Client::Client(uint16_t server_port, const std::string& server_ip) : next_request_id(1) {
+Client::Client(uint16_t server_port, const std::string& ip) : next_request_id(1) {
     pending_ack_request_id.store(0); // 0 indicates no pending request
     
     // Pre-configure server address if known IP provided (skips broadcast discovery)
-    if (!server_ip.empty()) {
+    if (!ip.empty()) {
         // Validate if address was created successfully (check sin_addr)
-        this->server_addr = SocketAddress(server_ip, server_port);
+        this->server_addr = SocketAddress(ip, server_port);
         has_server_address = this->server_addr.is_valid();
     } else {
         // No IP provided: will perform broadcast discovery
@@ -26,7 +26,7 @@ Client::Client(uint16_t server_port, const std::string& server_ip) : next_reques
 void Client::run() {
     // Enable broadcast capability for discovery phase (broadcasts to 255.255.255.255)
     if (!client_socket.initialize(0, true)) {
-        std::cerr << "Failed to initialize client socket." << std::endl;
+        std::cerr << "Failed to initialize client address." << std::endl;
         return;
     }
 
@@ -61,21 +61,17 @@ void Client::discover_server() {
     while (!has_server_address) {
         client_socket.send(&discovery_packet, discovery_packet.size(), server_addr);
         
-        // Non-blocking wait: allows retransmission if no response within timeout
-        auto start_time = std::chrono::steady_clock::now(); // Start timer
-        while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
-            // Check if CLIENT_DISCOVERY_ACK arrived (non-blocking receive)
-            ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
-            SocketAddress received_from_addr;
-            if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr) > 0) {
-                if (response_packet.type == CLIENT_DISCOVERY_ACK) {
-                    // Success: store server's address for future transactions
-                    this->server_addr = received_from_addr;
-                    this->next_request_id = response_packet.payload.request.id + 1; // Sync next_request_id with server's echo
-                    this->has_server_address = true;
-                    PrintUtils::print_discovery_reply(server_addr.ip());
-                    return;
-                }
+        // Check if CLIENT_DISCOVERY_ACK arrived (non-blocking receive)
+        ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
+        SocketAddress received_from_addr;
+        if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr, ACK_TIMEOUT_MS) > 0) {
+            if (response_packet.type == CLIENT_DISCOVERY_ACK) {
+                // Success: store server's address for future transactions
+                this->server_addr = received_from_addr;
+                this->next_request_id = response_packet.payload.request.id + 1; // Sync next_request_id with server's echo
+                this->has_server_address = true;
+                PrintUtils::print_discovery_reply(server_addr.ip());
+                return;
             }
         }
         // If no response, loop continues and retransmits
@@ -91,19 +87,15 @@ void Client::connect_to_known_server() {
     while (!received_ack) {
         client_socket.send(&discovery_packet, discovery_packet.size(), server_addr);
         
-        // Wait for CLIENT_DISCOVERY_ACK from the specific server IP
-        auto start_time = std::chrono::steady_clock::now(); // Start timer
-        while (std::chrono::steady_clock::now() - start_time < std::chrono::milliseconds(ACK_TIMEOUT_MS)) {
-            ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
-            SocketAddress received_from_addr;
-            if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr) > 0) {
-                if (response_packet.type == CLIENT_DISCOVERY_ACK) {
-                    // Verify response came from expected server (could add IP validation here)
-                    this->server_addr = received_from_addr;
-                    this->next_request_id = response_packet.payload.request.id + 1; // Sync next_request_id with server's echo
-                    received_ack = true;
-                    PrintUtils::print_discovery_reply(server_addr.ip());
-                }
+        ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
+        SocketAddress received_from_addr;
+        if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr, ACK_TIMEOUT_MS) > 0) {
+            if (response_packet.type == CLIENT_DISCOVERY_ACK) {
+                // Verify response came from expected server (could add IP validation here)
+                this->server_addr = received_from_addr;
+                this->next_request_id = response_packet.payload.request.id + 1; // Sync next_request_id with server's echo
+                received_ack = true;
+                PrintUtils::print_discovery_reply(server_addr.ip());
             }
         }
         // If no response, loop continues and retransmits
@@ -225,6 +217,9 @@ void Client::handle_server_responses() {
                     break;
                 case ERROR_ACK:
                     std::cout << "Transaction failed: Server error.\n\n";
+                case NEW_LEADER:
+                    // Update server address to new leader
+                    this->server_addr = response_packet.payload.new_leader.addr;
                     break;
             }
         }

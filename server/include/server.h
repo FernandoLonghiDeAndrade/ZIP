@@ -7,7 +7,7 @@
 #include <mutex>
 
 /// Timeout duration for ACK reception before retransmitting a request (milliseconds)
-constexpr uint32_t TIMEOUT_MS = 200;
+constexpr uint32_t TIMEOUT_MS = 100;
 
 /**
  * @brief ### Multi-threaded UDP server implementing the ZIP transaction protocol.
@@ -37,8 +37,8 @@ public:
     /**
      * @brief ### Starts the server's main execution loop (blocks indefinitely).
      * 
-     * Initializes socket and enters listening loop.
-     * Never returns unless socket initialization fails.
+     * Initializes address and enters listening loop.
+     * Never returns unless address initialization fails.
      */
     void run();
 
@@ -53,14 +53,12 @@ private:
      * Tries 3 times. If no response is received, elects itself as the leader.
      */
     void discover_leader_server();
-
-    void handle_server_discovery_ack();
     
     /**
      * @brief ### [Main thread] Infinite loop that receives packets and spawns worker threads.
      * 
      * For each incoming packet:
-     * 1. Blocks on socket.receive() waiting for next packet
+     * 1. Blocks on address.receive() waiting for next packet
      * 2. Spawns detached thread running process_client_packet()
      * 3. Immediately returns to listening (doesn't wait for thread to finish)
      * 
@@ -118,19 +116,40 @@ private:
 
     // ===== Server Packet Handlers =====
 
+    // Leader Server
     void process_server_packet(const ServerPacket& packet, const SocketAddress& server_addr);
 
-    void handle_server_discovery(const SocketAddress& server_addr);
+    // Backup Server
+    void request_leader_state();
+
+    // Backup Server
+    void receive_leader_state(bool is_from_discovery);
     
+    // Leader Server
     void handle_state_sync_request(const SocketAddress& server_addr);
+    
+    // Leader Server
+    void send_state_sync(const SocketAddress& server_addr, std::atomic<bool>& cancel);
 
-    void handle_new_server_sync(const SocketAddress& server_addr);
+    // Backup Server
+    void handle_new_server_sync(const ServerPacket& packet);
 
-    void handle_new_transaction_sync(const SocketAddress& server_addr);
+    // Backup Server
+    void handle_new_client_sync(const ServerPacket& packet);
+
+    // Backup Server
+    void handle_new_transaction_sync(const ServerPacket& packet);
 
     // ===== Leader Election =====
 
-    void request_election();
+    // Backup Server
+    void ping_leader();
+
+    // Leader Server
+    void handle_ping_leader(const SocketAddress& server_addr);
+
+    // Backup Server
+    void start_election();
 
     void handle_election_request(const SocketAddress& server_addr);
 
@@ -139,7 +158,7 @@ private:
     // ===== Server State =====
     
     uint16_t port;				///< UDP port for listening (shared for discovery and transactions)
-    UDPSocket server_socket;	///< Blocking UDP socket (receive() blocks until packet arrives)
+    UDPSocket server_socket;	///< Blocking UDP address (receive() blocks until packet arrives)
 
     // ===== Shared State (accessed by multiple worker threads) =====
     
@@ -149,8 +168,8 @@ private:
     
     /// Global bank statistics (protected by stats_mutex)
     uint32_t num_transactions;	///< Total transactions processed successfully (excludes duplicates and failures)
-    uint64_t total_transferred;  	///< Sum of all transaction values (cumulative, never decreases)
-    uint64_t total_balance;      	///< Sum of all client balances (should remain constant = num_clients * INITIAL_BALANCE)
+    uint64_t total_transferred; ///< Sum of all transaction values (cumulative, never decreases)
+    uint64_t total_balance;     ///< Sum of all client balances (should remain constant = num_clients * INITIAL_BALANCE)
 
     // ===== Synchronization =====
     
@@ -160,7 +179,7 @@ private:
 
     // ===== Backup Servers =====
 
-    std::vector<SocketAddress> servers; ///< List of known servers in the cluster
-    uint32_t server_id;                 ///< Identifies the entry of this server in the servers vector
-    uint32_t leader_id;                 ///< Identifies the entry of current leader server in the servers vector
+    uint32_t seq_number;                ///< Server's current sequence number (increments on state changes)
+    std::vector<SocketAddress> servers; ///< List of addresses of known servers in the cluster
+    SocketAddress leader_addr;          ///< Identifies the address of the leader server
 };
