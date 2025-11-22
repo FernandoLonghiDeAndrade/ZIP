@@ -16,6 +16,7 @@ find_package(Threads REQUIRED)
 # Shared library
 add_library(shared
     shared/src/print_utils.cpp
+    shared/src/socket_address.cpp
     shared/src/udp_socket.cpp
 )
 target_include_directories(shared PUBLIC shared/include)

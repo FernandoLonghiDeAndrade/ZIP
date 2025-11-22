@@ -71,7 +71,6 @@ public:
      * @brief ### Creates, configures, and binds the UDP address.
      * 
      * Configuration applied:
-     * - Non-blocking mode (receive() returns immediately if no data)
      * - SO_BROADCAST enabled if is_broadcast=true (allows 255.255.255.255)
      * - Binds to INADDR_ANY (0.0.0.0, accepts packets on all interfaces)
      * - Binds to specified port (0 = OS assigns random available port)
@@ -109,7 +108,7 @@ public:
     bool send(const void* data, size_t size, const SocketAddress& dest_addr);
 
     /**
-     * @brief ### Receives UDP datagram from address (non-blocking). Thread-safe.
+     * @brief ### Receives UDP datagram from address. Thread-safe.
      * 
      * Serializes receives using receive_mutex (only one receive at a time).
      * Returns when the timeout expires or data is received.
@@ -117,7 +116,7 @@ public:
      * @param buffer Pointer to receive buffer (must not be nullptr).
      * @param size Maximum bytes to read (recommend >= 512 bytes for full datagrams).
      * @param sender_addr [OUT] Filled with sender's IP and port.
-     * @param timeout_ms Maximum time to wait for data (0 = no wait, non-blocking).
+     * @param timeout_ms Maximum time to wait for data (0 = non-blocking, <0 = blocking, >0 = timeout in milliseconds).
      * @return Number of bytes received (0 = no data available, -1 = error, >0 = success).
      * 
      * Return values:
@@ -128,7 +127,7 @@ public:
      * Note: UDP datagrams are atomic (receive gets entire datagram or nothing).
      * Truncation occurs silently if buffer too small (data lost).
      */
-    int32_t receive(void* buffer, size_t size, SocketAddress& sender_addr, uint32_t timeout_ms = 0);
+    int32_t receive(void* buffer, size_t size, SocketAddress& sender_addr, int32_t timeout_ms = -1);
 
     /**
      * @brief ### Closes the address and releases OS resources.
@@ -144,7 +143,8 @@ public:
     void close_socket();
 
 private:
-    socket_t sock_fd = INVALID_SOCKET_VALUE;  ///< Socket handle (platform-independent)
+    socket_t sock_fd = INVALID_SOCKET_VALUE;    ///< Socket handle (platform-independent)
+    uint32_t socket_id;                         ///< Unique ID to filter loopback packets
     
     mutable std::mutex send_mutex;      ///< Serializes send() calls (allows one send at a time)
     mutable std::mutex receive_mutex;   ///< Serializes receive() calls (allows one receive at a time)

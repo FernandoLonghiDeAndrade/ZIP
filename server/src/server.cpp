@@ -423,7 +423,7 @@ void Server::handle_state_sync_request(const SocketAddress& server_addr) {
     while (send_thread.joinable()) {
         ServerPacket response_packet;
         SocketAddress addr;
-        uint32_t bytes_received = this->server_socket.receive(&response_packet, sizeof(ServerPacket), addr);
+        uint32_t bytes_received = this->server_socket.receive(&response_packet, sizeof(ServerPacket), addr, 0);
         
         if (bytes_received > 0) {
             if (response_packet.type == STATE_SYNC_REQUEST and addr.ip() == server_addr.ip()) {
