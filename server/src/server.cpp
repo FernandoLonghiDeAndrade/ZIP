@@ -416,8 +416,11 @@ void Server::handle_state_sync_request(const SocketAddress& server_addr) {
     // Shared flag to cancel send_thread if STATE_SYNC_REQUEST received again
     std::atomic<bool> cancel_sync{false};
 
+    // Shared flag to signal completion of the send_thread
+    std::atomic<bool> sync_finished{false};
+
     // Leader: spawn thread to send state sync to server
-    std::thread send_thread = std::thread(&Server::send_state_sync, this, server_addr, std::ref(cancel_sync));
+    std::thread send_thread = std::thread(&Server::send_state_sync, this, server_addr, std::ref(cancel_sync), std::ref(sync_finished));
 
     // While send thread is running, continue listening for other packets
     while (send_thread.joinable()) {
@@ -428,16 +431,20 @@ void Server::handle_state_sync_request(const SocketAddress& server_addr) {
         if (bytes_received > 0) {
             if (response_packet.type == STATE_SYNC_REQUEST and addr.ip() == server_addr.ip()) {
                 cancel_sync.store(true);  // Tells thread to stop
-                send_thread.join();       // Waits for thread to finish
+                send_thread.join();       // Wait for thread to finish
                 handle_state_sync_request(server_addr); // Starts sync again
                 return;
             }
+        }
+        
+        if (sync_finished.load()) {
+            send_thread.join(); // Wait for thread to finish
         }
     }
     // Thread finished and sent everything to the server
 }
 
-void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>& cancel) {
+void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>& cancel, std::atomic<bool>& finished) {
     if (cancel.load()) return; // Check if it should stop
     
     // Send STATE_SYNC_ACK response
@@ -483,6 +490,8 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     // Send sequence number and stats to the other server
     ServerPacket seq_and_stats_packet = ServerPacket::create_seq_and_stats(sync_seq, seq_number, num_transactions, total_transferred, total_balance);
     this->server_socket.send(&seq_and_stats_packet, seq_and_stats_packet.size(), server_addr);
+
+    finished.store(true); // Signal that sync is finished
 }
 
 void Server::handle_new_server_sync(const ServerPacket& packet) {

@@ -129,7 +129,7 @@ private:
     void handle_state_sync_request(const SocketAddress& server_addr);
     
     // Leader Server
-    void send_state_sync(const SocketAddress& server_addr, std::atomic<bool>& cancel);
+    void send_state_sync(const SocketAddress& server_addr, std::atomic<bool>& cancel, std::atomic<bool>& finished);
 
     // Backup Server
     void handle_new_server_sync(const ServerPacket& packet);
