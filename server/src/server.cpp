@@ -83,6 +83,8 @@ void Server::discover_leader_server() {
                 }
 
                 return;
+            } else {
+                attempt--; // Invalid response, don't count this attempt
             }
         }
         // If no response, loop continues and retransmits
@@ -422,7 +424,7 @@ void Server::handle_state_sync_request(const SocketAddress& server_addr) {
     // Leader: spawn thread to send state sync to server
     std::thread send_thread = std::thread(&Server::send_state_sync, this, server_addr, std::ref(cancel_sync), std::ref(sync_finished));
 
-    // While send thread is running, continue listening for other packets
+    // While send thread is running, continue listening for STATE_SYNC_REQUEST packets (to cancel and restart)
     while (send_thread.joinable()) {
         ServerPacket response_packet;
         SocketAddress addr;
@@ -436,7 +438,7 @@ void Server::handle_state_sync_request(const SocketAddress& server_addr) {
                 return;
             }
         }
-        
+
         if (sync_finished.load()) {
             send_thread.join(); // Wait for thread to finish
         }
