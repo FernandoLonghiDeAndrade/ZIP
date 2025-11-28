@@ -176,8 +176,6 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
         FD_ZERO(&read_fds);
         FD_SET(sock_fd, &read_fds);
 
-        std::cout << "DEBUG: Waiting for data with timeout_ms = " << timeout_ms << " ms" << std::endl;
-
         struct timeval tv, *tv_ptr = nullptr;
         if (timeout_ms >= 0) {
             // Timed operation: calculate remaining timeout

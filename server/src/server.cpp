@@ -47,17 +47,11 @@ void Server::run() {
         while (true) {
             std::this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT_MS));
 
-            std::cout << "DEBUG: My IP: " << this->server_socket.address().ip_string() << std::endl;
-            std::cout << "DEBUG: Leader IP: " << this->leader_addr.ip_string() << std::endl;
-
             // Check if this server is leader
             if (this->server_socket.ip() != this->leader_addr.ip()) {
                 // Not leader: ping leader
-                std::cout << "DEBUG: Ping leader at " << this->leader_addr.ip_string() << std::endl;
                 ping_leader();
-                std::cout << "DEBUG: Returning from ping_leader()" << std::endl;
             }
-            std::cout << "DEBUG: Ping thread sleeping..." << std::endl;
         }
     });
 
@@ -84,7 +78,6 @@ void Server::discover_leader_server() {
 
             // Set leader address and receive state
             this->leader_addr = leader_addr_received;
-            std::cout << "DEBUG: Leader IP: " << this->leader_addr.ip_string() << std::endl;
             receive_leader_state(true);
 
             // Check if the server has a lower ID than the leader to start an election
@@ -117,7 +110,6 @@ void Server::run_listening_loop() {
     
     while (true) {
         // Blocking receive
-        std::cout << "DEBUG: Waiting to receive packet..." << std::endl;
         int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(packet_buffer), address);
 
         // Determine if packet is from client or server based on first byte (packet type)
@@ -434,7 +426,6 @@ void Server::handle_state_sync_request(const SocketAddress& server_addr) {
     while (send_thread.joinable()) {
         ServerPacket response_packet;
         SocketAddress addr;
-        std::cout << "DEBUG: Waiting for STATE_SYNC_REQUEST to possibly cancel send_thread..." << std::endl;
         uint32_t bytes_received = this->server_socket.receive(&response_packet, sizeof(ServerPacket), addr, 0);
         
         if (bytes_received > 0) {
@@ -683,10 +674,7 @@ bool Server::receive_server_packet(
 ) {
     while (true) {
         auto start_time = std::chrono::steady_clock::now();
-        std::cout << "Calling receive..." << std::endl;
-        std::cout << "Current timeout_ms = " << timeout_ms << std::endl;
         int32_t bytes_received = this->server_socket.receive(&packet, packet.size(), server_addr, timeout_ms);
-        std::cout << "Returned from receive, bytes_received = " << bytes_received << std::endl;
         auto elapsed_time = std::chrono::steady_clock::now() - start_time;
 
         timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();
@@ -698,11 +686,8 @@ bool Server::receive_server_packet(
         if (bytes_received > 0) {
             if (std::find(expected_types.begin(), expected_types.end(), packet.type) == expected_types.end()) {
                 // Unexpected packet type received: call handler
-                std::cout << "Entering unexpected packet handler for type " << static_cast<int>(packet.type) << std::endl;
                 unexpected_types_handler(packet, server_addr);
-                std::cout << "Exiting unexpected packet handler" << std::endl;
             } else {
-                std::cout << "Expected packet type received: " << static_cast<int>(packet.type) << std::endl;
                 // Expected packet type received: return true
                 return true;
             }
