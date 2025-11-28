@@ -343,6 +343,7 @@ void Server::receive_leader_state(bool is_from_discovery) {
                 // Store server address in buffer
                 uint32_t server_ip = response_packet.payload.server.ip;
                 uint16_t server_port = response_packet.payload.server.port;
+                std::cout << "DEBUG: server port: " << server_port << std::endl;
                 SocketAddress server_addr(server_ip, server_port);
                 std::cout << "DEBUG: Received server info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
                 buffer_servers.push_back(server_addr);
@@ -366,7 +367,7 @@ void Server::receive_leader_state(bool is_from_discovery) {
         while (true) {
             std::vector<ServerPacketType> expected_types = {CLIENT_INFO, SEQ_AND_STATS};
             if (this->receive_server_packet(response_packet, this->leader_addr, expected_types, TIMEOUT_MS) and
-                response_packet.payload.server.seq_number == sync_seq++
+                response_packet.payload.client.seq_number == sync_seq++
             ) {
                 // Valid packet received
                 if (response_packet.type == CLIENT_INFO) {
