@@ -68,8 +68,8 @@ void Server::discover_leader_server() {
                 }
             }
             if (server_id < leader_id) {
-                std::cout << "This server id: " << server_id << std::endl;
-                std::cout << "Leader server id: " << leader_id << std::endl;
+                std::cout << "DEBUG: This server id: " << server_id << std::endl;
+                std::cout << "DEBUG: Leader server id: " << leader_id << std::endl;
                 std::cout << "This server has a lower ID than the leader. Starting election..." << std::endl;
                 start_election();
             }
@@ -343,8 +343,9 @@ void Server::receive_leader_state(bool is_from_discovery) {
                 // Store server address in buffer
                 uint32_t server_ip = response_packet.payload.server.ip;
                 uint16_t server_port = response_packet.payload.server.port;
-                std::cout << "DEBUG: Received server info: " << server_ip << ":" << server_port << std::endl;
-                buffer_servers.push_back(SocketAddress(server_ip, server_port));
+                SocketAddress server_addr(server_ip, server_port);
+                std::cout << "DEBUG: Received server info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
+                buffer_servers.push_back(server_addr);
             } else {
                 // Finished receiving server infos
                 break;
