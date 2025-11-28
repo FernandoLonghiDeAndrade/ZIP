@@ -36,15 +36,33 @@
 #endif
 
 uint32_t UDPSocket::ip() const {
-    if (sock_fd == INVALID_SOCKET_VALUE) {
-        return 0;
-    }
+    if (sock_fd == INVALID_SOCKET_VALUE) return 0;
 
     struct sockaddr_in local_addr;
     socklen_t addr_len = sizeof(local_addr);
-    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) {
-        return 0;
+    
+    // Tenta ler o endereço bound (será 0.0.0.0 se INADDR_ANY)
+    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) return 0;
+    
+    // Se bound em INADDR_ANY, descobre o IP de saída usando connect trick
+    if (local_addr.sin_addr.s_addr == INADDR_ANY) {
+        int tmp_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (tmp_fd != INVALID_SOCKET_VALUE) {
+            struct sockaddr_in remote{};
+            remote.sin_family = AF_INET;
+            remote.sin_port = htons(53);
+            if (inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr) == 1) {
+                connect(tmp_fd, (struct sockaddr*)&remote, sizeof(remote));
+                struct sockaddr_in outgoing{};
+                socklen_t len = sizeof(outgoing);
+                if (getsockname(tmp_fd, (struct sockaddr*)&outgoing, &len) == 0) {
+                    local_addr.sin_addr = outgoing.sin_addr;
+                }
+            }
+            close_socket_impl(tmp_fd);
+        }
     }
+    
     return local_addr.sin_addr.s_addr;
 }
 
@@ -71,13 +89,31 @@ SocketAddress UDPSocket::address() const {
     if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) {
         return SocketAddress();
     }
+    
+    if (local_addr.sin_addr.s_addr == INADDR_ANY) {
+        int tmp_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (tmp_fd != INVALID_SOCKET_VALUE) {
+            struct sockaddr_in remote{};
+            remote.sin_family = AF_INET;
+            remote.sin_port = htons(53);
+            if (inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr) == 1) {
+                connect(tmp_fd, (struct sockaddr*)&remote, sizeof(remote));
+                struct sockaddr_in outgoing{};
+                socklen_t len = sizeof(outgoing);
+                if (getsockname(tmp_fd, (struct sockaddr*)&outgoing, &len) == 0) {
+                    local_addr.sin_addr = outgoing.sin_addr;
+                }
+            }
+            close_socket_impl(tmp_fd);
+        }
+    }
+    
     return SocketAddress(local_addr);
 }
 
 bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
     init_winsock();
     
-    // Generate unique socket ID (timestamp + port = collision-resistant)
     socket_id = static_cast<uint32_t>(
         std::chrono::steady_clock::now().time_since_epoch().count() ^ port
     );
@@ -93,31 +129,7 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
     struct sockaddr_in bind_addr {};
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_port = htons(port);
-    bind_addr.sin_addr.s_addr = INADDR_ANY; // fallback
-
-    // Detect the local IP used for outgoing packets by creating a temporary UDP socket
-    // and "connecting" it to a public IP; kernel picks the outgoing interface.
-    // If detection succeeds and is not INADDR_ANY, bind to that IP.
-    {
-        int tmp_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (tmp_fd != INVALID_SOCKET_VALUE) {
-            struct sockaddr_in remote{};
-            remote.sin_family = AF_INET;
-            remote.sin_port = htons(53); // DNS port — no packets actually sent
-            // Use a reachable public IP; 8.8.8.8 is common
-            if (inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr) == 1) {
-                // connect() on UDP doesn't send data but lets kernel choose local addr
-                connect(tmp_fd, (struct sockaddr*)&remote, sizeof(remote));
-                struct sockaddr_in local{};
-                socklen_t len = sizeof(local);
-                if (getsockname(tmp_fd, (struct sockaddr*)&local, &len) == 0 &&
-                    local.sin_addr.s_addr != INADDR_ANY) {
-                    bind_addr.sin_addr = local.sin_addr;
-                }
-            }
-            close_socket_impl(tmp_fd);
-        }
-    }
+    bind_addr.sin_addr.s_addr = INADDR_ANY;  // SEMPRE INADDR_ANY para receber broadcasts
 
     if (bind(sock_fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr)) < 0) {
         close_socket();
