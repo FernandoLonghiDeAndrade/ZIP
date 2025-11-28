@@ -20,6 +20,7 @@ Server::Server(uint16_t port) : port(port) {
         ServerPacket packet;
         SocketAddress addr;
         bytes_received = server_socket.receive(&packet, sizeof(ServerPacket), addr, 0);
+        printf("Clearing socket, received %u bytes\n", bytes_received);
     } while (bytes_received > 0);
 
     // Initialize statistics
@@ -41,17 +42,18 @@ void Server::run() {
     discover_leader_server();
 
     // Start ping thread
-    std::thread([this]() {
+    std::thread ping_thread = std::thread([this]() {
         while (true) {
             std::this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT_MS));
             
             // Check if this server is leader
             if (this->server_socket.ip() != this->leader_addr.ip()) {
                 // Not leader: ping leader
+                printf("Ping leader at %s\n", this->leader_addr.ip_string().c_str());
                 ping_leader();
             }
         }
-    }).detach();
+    });
 
     // Enter infinite listening loop (never returns)
     run_listening_loop();
@@ -65,16 +67,16 @@ void Server::discover_leader_server() {
         server_socket.send(&discovery_packet, discovery_packet.size(), SocketAddress::broadcast(port));
 
         // Wait for response with timeout
-        SocketAddress leader_addr;
+        SocketAddress leader_addr_received;
         ServerPacket response_packet;
-        int32_t bytes_received = server_socket.receive(&response_packet, sizeof(response_packet), leader_addr, TIMEOUT_MS);
+        int32_t bytes_received = server_socket.receive(&response_packet, sizeof(response_packet), leader_addr_received, TIMEOUT_MS);
         
         if (bytes_received > 0) {
             // Received response: check if it's STATE_SYNC_ACK
             if (response_packet.type == STATE_SYNC_ACK) {
-                std::cout << "Discovered leader server at " << leader_addr.ip_string() << std::endl;
+                std::cout << "Discovered leader server at " << leader_addr_received.ip_string() << std::endl;
                 // Set leader address and receive state
-                this->leader_addr = leader_addr;
+                this->leader_addr = leader_addr_received;
                 receive_leader_state(true);
 
                 // Check if the server has a lower ID than the leader to start an election
@@ -82,7 +84,7 @@ void Server::discover_leader_server() {
                 for (size_t i = 0; i < servers.size(); i++) {
                     if (servers[i].ip() == this->server_socket.ip()) {
                         server_id = i;
-                    } else if (servers[i].ip() == leader_addr.ip()) {
+                    } else if (servers[i].ip() == leader_addr_received.ip()) {
                         leader_id = i;
                     }
                 }
@@ -292,6 +294,7 @@ void Server::process_server_packet(const ServerPacket& packet, const SocketAddre
             handle_new_transaction_sync(packet);
             break;
         case PING_LEADER:
+            std::cout << "\nReceived PING_LEADER from " << server_addr.ip_string() << std::endl;
             handle_ping_leader(server_addr);
             break;
         case ELECTION_REQUEST:
