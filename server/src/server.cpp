@@ -14,6 +14,14 @@ Server::Server(uint16_t port) : port(port) {
         throw std::runtime_error("Failed to initialize UDP address");
     }
 
+    // Clear socket
+    uint32_t bytes_received;
+    do {
+        ServerPacket packet;
+        SocketAddress addr;
+        bytes_received = server_socket.receive(&packet, sizeof(ServerPacket), addr, 0);
+    } while (bytes_received > 0);
+
     // Initialize statistics
     num_transactions = 0;
     total_transferred = 0;
