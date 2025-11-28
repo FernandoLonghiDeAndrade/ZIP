@@ -163,9 +163,9 @@ bool UDPSocket::send(const void* data, size_t size, const SocketAddress& dest_ad
 
 // ===== Receive data =====
 
-int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr, int32_t timeout_ms) {
+int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr, int32_t timeout_ms) {  
     if (!buffer || size == 0 || sock_fd == INVALID_SOCKET_VALUE) return -1;
-
+    
     std::lock_guard<std::mutex> lock(receive_mutex);
     
     // Track absolute timeout only for timed operations

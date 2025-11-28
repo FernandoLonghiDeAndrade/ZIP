@@ -42,19 +42,6 @@ void Server::run() {
     // Discover leader server in cluster
     discover_leader_server();
 
-    // Start ping thread
-    std::thread ping_thread = std::thread([this]() {
-        while (true) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT_MS));
-
-            // Check if this server is leader
-            if (this->server_socket.ip() != this->leader_addr.ip()) {
-                // Not leader: ping leader
-                ping_leader();
-            }
-        }
-    });
-
     // Enter infinite listening loop (never returns)
     run_listening_loop();
 }
@@ -110,15 +97,23 @@ void Server::run_listening_loop() {
     
     while (true) {
         // Blocking receive
-        int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(packet_buffer), address);
+        int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(packet_buffer), address, TIMEOUT_MS);
 
-        // Determine if packet is from client or server based on first byte (packet type)
-        if (packet_buffer[0] >= STATE_SYNC_REQUEST) {
-            // Server packet
-            process_server_packet(*(ServerPacket*)packet_buffer, address);
-        } else {
-            // Client packet
-            std::thread(&Server::process_client_packet, this, *(ClientPacket*)packet_buffer, address).detach();
+        if (bytes_received > 0) {
+            // Determine if packet is from client or server based on first byte (packet type)
+            if (packet_buffer[0] >= STATE_SYNC_REQUEST) {
+                // Server packet
+                process_server_packet(*(ServerPacket*)packet_buffer, address);
+            } else {
+                // Client packet
+                std::thread(&Server::process_client_packet, this, *(ClientPacket*)packet_buffer, address).detach();
+            }
+        }
+        
+        // Check if this server is leader
+        if (this->server_socket.ip() != this->leader_addr.ip()) {
+            // Not leader: ping leader
+            ping_leader();
         }
     }
 }
@@ -674,11 +669,13 @@ bool Server::receive_server_packet(
 ) {
     while (true) {
         auto start_time = std::chrono::steady_clock::now();
+        std::cout << "DEBUG: calling receive" << std::endl;
         int32_t bytes_received = this->server_socket.receive(&packet, packet.size(), server_addr, timeout_ms);
+        std::cout << "DEBUG: returned from receive, bytes_received = " << bytes_received << std::endl;
         auto elapsed_time = std::chrono::steady_clock::now() - start_time;
 
         timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();
-        
+        //std::cout << "DEBUG: receive_server_packet timeout_ms remaining: " << timeout_ms << " ms" << std::endl;
         if (timeout_ms <= 0) {
             return false; // Timeout reached
         }
