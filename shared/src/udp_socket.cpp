@@ -38,47 +38,11 @@
 #endif
 
 uint32_t UDPSocket::ip() const {
-    if (sock_fd == INVALID_SOCKET_VALUE) return 0;
-
-    struct sockaddr_in local_addr;
-    socklen_t addr_len = sizeof(local_addr);
-    
-    // Tenta ler o endereço bound (será 0.0.0.0 se INADDR_ANY)
-    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) return 0;
-    
-    // Se bound em INADDR_ANY, descobre o IP de saída usando connect trick
-    if (local_addr.sin_addr.s_addr == INADDR_ANY) {
-        int tmp_fd = socket(AF_INET, SOCK_DGRAM, 0);
-        if (tmp_fd != INVALID_SOCKET_VALUE) {
-            struct sockaddr_in remote{};
-            remote.sin_family = AF_INET;
-            remote.sin_port = htons(53);
-            if (inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr) == 1) {
-                connect(tmp_fd, (struct sockaddr*)&remote, sizeof(remote));
-                struct sockaddr_in outgoing{};
-                socklen_t len = sizeof(outgoing);
-                if (getsockname(tmp_fd, (struct sockaddr*)&outgoing, &len) == 0) {
-                    local_addr.sin_addr = outgoing.sin_addr;
-                }
-            }
-            close_socket_impl(tmp_fd);
-        }
-    }
-    
-    return local_addr.sin_addr.s_addr;
+    return address().ip();
 }
 
 uint16_t UDPSocket::port() const {
-    if (sock_fd == INVALID_SOCKET_VALUE) {
-        return 0;
-    }
-
-    struct sockaddr_in local_addr;
-    socklen_t addr_len = sizeof(local_addr);
-    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) {
-        return 0;
-    }
-    return ntohs(local_addr.sin_port);
+    return address().port();
 }
 
 SocketAddress UDPSocket::address() const {

@@ -59,7 +59,7 @@ void Server::discover_leader_server() {
             receive_leader_state(true);
 
             // Check if the server has a lower ID than the leader to start an election
-            size_t server_id, leader_id;
+            size_t server_id = 0, leader_id = 0;
             for (size_t i = 0; i < servers.size(); i++) {
                 if (servers[i].ip() == this->server_socket.ip()) {
                     server_id = i;
@@ -82,7 +82,9 @@ void Server::discover_leader_server() {
     // If no leader discovered after 3 attempts, elect self as leader
     std::cout << "No leader discovered after 3 attempts. Electing self as leader." << std::endl;
     leader_addr = this->server_socket.address();
+    std::cout << "Leader server is at " << leader_addr.ip_string() << std::endl;
     servers.push_back(leader_addr);
+    std::cout << servers[0].ip_string() << std::endl;
 }
 
 void Server::run_listening_loop() {
@@ -92,6 +94,12 @@ void Server::run_listening_loop() {
     while (true) {
         // Blocking receive
         int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(packet_buffer), address, TIMEOUT_MS);
+
+        // DEBUG
+        for (auto server : servers) {
+            std::cout << "DEBUG: Known server: " << server.ip_string() << std::endl;
+        }
+        std::cout << std::endl;
 
         if (bytes_received > 0) {
             // Determine if packet is from client or server based on first byte (packet type)
@@ -333,8 +341,10 @@ void Server::receive_leader_state(bool is_from_discovery) {
             // Valid packet received
             if (response_packet.type == SERVER_INFO) {
                 // Store server address in buffer
-                SocketAddress server_addr = response_packet.payload.server.addr;
-                buffer_servers.push_back(server_addr);
+                uint32_t server_ip = response_packet.payload.server.ip;
+                uint16_t server_port = response_packet.payload.server.port;
+                std::cout << "DEBUG: Received server info: " << server_ip << ":" << server_port << std::endl;
+                buffer_servers.push_back(SocketAddress(server_ip, server_port));
             } else {
                 // Finished receiving server infos
                 break;
@@ -467,6 +477,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
 
     // Send each server's info to the other server
     for (auto server : servers) {
+        std::cout << "DEBUG: Sending server info: " << server.ip_string() << std::endl;
         ServerPacket server_info_packet = ServerPacket::create_server_info(sync_seq++, server);
         this->server_socket.send(&server_info_packet, server_info_packet.size(), server_addr);
         if (cancel.load()) return; // Check if it should stop
@@ -495,9 +506,10 @@ void Server::handle_new_server_sync(const ServerPacket& packet) {
         return;
     }
 
-    SocketAddress new_server_addr = packet.payload.server.addr;
+    uint32_t new_server_ip = packet.payload.server.ip;
+    uint16_t new_server_port = packet.payload.server.port;
 
-    this->servers.push_back(new_server_addr);
+    this->servers.push_back(SocketAddress(new_server_ip, new_server_port));
 }
 
 void Server::handle_new_client_sync(const ServerPacket& packet) {

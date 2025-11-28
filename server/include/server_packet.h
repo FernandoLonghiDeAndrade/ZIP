@@ -32,7 +32,8 @@ enum ServerPacketType : uint8_t {
  */
 struct ServerInfoPayload {
     uint32_t seq_number;
-    SocketAddress addr;
+    uint32_t ip;
+    uint16_t port;
 };
 
 /**
@@ -92,7 +93,8 @@ struct ServerPacket {
     static ServerPacket create_server_info(uint32_t sync_seq, SocketAddress server_addr) {
         ServerPacket p(SERVER_INFO);
         p.payload.server.seq_number = sync_seq;
-        p.payload.server.addr = server_addr;
+        p.payload.server.ip = server_addr.ip();
+        p.payload.server.port = server_addr.port();
         return p;
     }
 
@@ -118,7 +120,8 @@ struct ServerPacket {
     static ServerPacket create_new_server_sync(uint32_t seq_number, SocketAddress server_addr) {
         ServerPacket p(SERVER_INFO);
         p.payload.server.seq_number = seq_number;
-        p.payload.server.addr = server_addr;
+        p.payload.server.ip = server_addr.ip();
+        p.payload.server.port = server_addr.port();
         return p;
     }
 
