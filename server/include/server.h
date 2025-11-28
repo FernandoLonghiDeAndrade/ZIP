@@ -170,7 +170,7 @@ private:
         ServerPacket& packet,
         SocketAddress& server_addr,
         std::vector<ServerPacketType> expected_types,
-        uint32_t timeout_ms,
+        int32_t timeout_ms,
         std::function<void(const ServerPacket&, const SocketAddress&)> unexpected_types_handler = [](const ServerPacket&, const SocketAddress&){}
     );
 
