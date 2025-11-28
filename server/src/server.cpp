@@ -72,8 +72,6 @@ void Server::discover_leader_server() {
         ServerPacket response_packet;
         std::vector<ServerPacketType> expected_types = {STATE_SYNC_ACK};
 
-        std::cout << "Waiting for leader response..." << std::endl;
-
         if (receive_server_packet(response_packet, leader_addr_received, expected_types, TIMEOUT_MS)) {
 
             // Received response
@@ -559,6 +557,7 @@ void Server::ping_leader() {
     this->server_socket.send(&ping_packet, ping_packet.size(), this->leader_addr);
 
     std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
+    std::cout << "Waiting for PING_LEADER_ACK from leader..." << std::endl;
     if (!this->receive_server_packet(ping_packet, this->leader_addr, expected_types, TIMEOUT_MS)) {
         // No response: start election
         start_election();
@@ -683,7 +682,7 @@ bool Server::receive_server_packet(
                 return true;
             }
         }
-        
+
     } while(timeout_ms > 0);
 
     return false; // Return false on timeout
