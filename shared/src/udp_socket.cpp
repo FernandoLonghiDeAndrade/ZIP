@@ -1,5 +1,7 @@
 #include "udp_socket.h"
 #include <cstring>
+#include <chrono>
+#include <iostream>
 
 #ifdef _WIN32
     #include <ws2tcpip.h>
@@ -173,14 +175,16 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(sock_fd, &read_fds);
-        
+
+        std::cout << "DEBUG: Waiting for data with timeout_ms = " << timeout_ms << " ms" << std::endl;
+
         struct timeval tv, *tv_ptr = nullptr;
         if (timeout_ms >= 0) {
             // Timed operation: calculate remaining timeout
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start_time).count();
             int32_t remaining_ms = timeout_ms - static_cast<int32_t>(elapsed);
-            
+
             // If timeout already expired, return immediately
             if (remaining_ms <= 0) return 0;
             

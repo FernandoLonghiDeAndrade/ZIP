@@ -7,7 +7,7 @@
 #include <mutex>
 
 /// Timeout duration for ACK reception before retransmitting a request (milliseconds)
-constexpr uint32_t TIMEOUT_MS = 1000;
+constexpr int32_t TIMEOUT_MS = 1000;
 
 /**
  * @brief ### Multi-threaded UDP server implementing the ZIP transaction protocol.
