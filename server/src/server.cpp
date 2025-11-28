@@ -52,6 +52,7 @@ void Server::run() {
                 // Not leader: ping leader
                 printf("Ping leader at %s\n", this->leader_addr.ip_string().c_str());
                 ping_leader();
+                std::cout << "Returning from ping_leader()" << std::endl;
             }
         }
     });
@@ -556,12 +557,15 @@ void Server::ping_leader() {
     ServerPacket ping_packet(PING_LEADER);
     this->server_socket.send(&ping_packet, ping_packet.size(), this->leader_addr);
 
-    std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
     std::cout << "Waiting for PING_LEADER_ACK from leader..." << std::endl;
+    std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
     if (!this->receive_server_packet(ping_packet, this->leader_addr, expected_types, TIMEOUT_MS)) {
         // No response: start election
+        std::cout << "No PING_LEADER_ACK received. Starting election..." << std::endl;
         start_election();
     }
+    std::cout << "Received PING_LEADER_ACK from leader." << std::endl;
+    return;
 }
 
 void Server::handle_ping_leader(const SocketAddress& server_addr) {
@@ -667,8 +671,12 @@ bool Server::receive_server_packet(
     std::function<void(const ServerPacket&, const SocketAddress&)> unexpected_types_handler
 ) {
     do {
+        std::cout << "Waiting for packet, timeout in " << timeout_ms << " ms..." << std::endl;
+
         auto start_time = std::chrono::steady_clock::now();
+        std::cout << "Calling receive..." << std::endl;
         int32_t bytes_received = this->server_socket.receive(&packet, packet.size(), server_addr, timeout_ms);
+        std::cout << "Returned from receive, bytes_received = " << bytes_received << std::endl;
         auto elapsed_time = std::chrono::steady_clock::now() - start_time;
 
         timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();
@@ -676,7 +684,9 @@ bool Server::receive_server_packet(
         if (bytes_received > 0) {
             if (std::find(expected_types.begin(), expected_types.end(), packet.type) == expected_types.end()) {
                 // Unexpected packet type received: call handler
+                std::cout << "Entering unexpected packet handler for type " << static_cast<int>(packet.type) << std::endl;
                 unexpected_types_handler(packet, server_addr);
+                std::cout << "Exiting unexpected packet handler" << std::endl;
             } else {
                 // Expected packet type received: return true
                 return true;

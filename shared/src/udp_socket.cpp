@@ -166,6 +166,9 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
 
     std::lock_guard<std::mutex> lock(receive_mutex);
     
+    // Track absolute timeout only for timed operations
+    auto start_time = (timeout_ms >= 0) ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    
     while (true) {  // Loop to skip loopback packets
         fd_set read_fds;
         FD_ZERO(&read_fds);
@@ -173,16 +176,35 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
         
         struct timeval tv, *tv_ptr = nullptr;
         if (timeout_ms >= 0) {
-            tv.tv_sec = timeout_ms / 1000;
-            tv.tv_usec = (timeout_ms % 1000) * 1000;
+            // Timed operation: calculate remaining timeout
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time).count();
+            int32_t remaining_ms = timeout_ms - static_cast<int32_t>(elapsed);
+            
+            // If timeout already expired, return immediately
+            if (remaining_ms <= 0) return 0;
+            
+            tv.tv_sec = remaining_ms / 1000;
+            tv.tv_usec = (remaining_ms % 1000) * 1000;
             tv_ptr = &tv;
         }
+        // For timeout_ms < 0: tv_ptr remains nullptr = blocking operation
         
+        int select_result;
         #ifdef _WIN32
-            if (select(0, &read_fds, nullptr, nullptr, tv_ptr) <= 0) return 0;
+            select_result = select(0, &read_fds, nullptr, nullptr, tv_ptr);
         #else
-            if (select(sock_fd + 1, &read_fds, nullptr, nullptr, tv_ptr) <= 0) return 0;
+            select_result = select(sock_fd + 1, &read_fds, nullptr, nullptr, tv_ptr);
         #endif
+        
+        // Handle select results properly
+        if (select_result < 0) {
+            return -1;  // Error occurred
+        } else if (select_result == 0) {
+            // Timeout occurred - only possible when timeout_ms >= 0
+            return 0;
+        }
+        // select_result > 0: data is available
         
         // Receive into temporary buffer (extract socket_id header)
         uint8_t recv_buffer[sizeof(socket_id) + size];
@@ -205,9 +227,10 @@ int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr
         
         // Valid packet: copy payload (without header) to user buffer
         size_t payload_size = bytes - sizeof(socket_id);
-        memcpy(buffer, recv_buffer + sizeof(socket_id), payload_size);
+        size_t copy_size = std::min(payload_size, size); // Prevent buffer overflow
+        memcpy(buffer, recv_buffer + sizeof(socket_id), copy_size);
         sender_addr = SocketAddress(native_addr);
-        return static_cast<int32_t>(payload_size);
+        return static_cast<int32_t>(copy_size);
     }
 }
 
