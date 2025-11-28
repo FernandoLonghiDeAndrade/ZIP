@@ -70,33 +70,30 @@ void Server::discover_leader_server() {
         // Wait for response with timeout
         SocketAddress leader_addr_received;
         ServerPacket response_packet;
-        int32_t bytes_received = server_socket.receive(&response_packet, sizeof(response_packet), leader_addr_received, TIMEOUT_MS);
-        
-        if (bytes_received > 0) {
-            // Received response: check if it's STATE_SYNC_ACK
-            if (response_packet.type == STATE_SYNC_ACK) {
-                std::cout << "Discovered leader server at " << leader_addr_received.ip_string() << std::endl;
-                // Set leader address and receive state
-                this->leader_addr = leader_addr_received;
-                receive_leader_state(true);
+        std::vector<ServerPacketType> expected_types = {STATE_SYNC_ACK};
 
-                // Check if the server has a lower ID than the leader to start an election
-                size_t server_id, leader_id;
-                for (size_t i = 0; i < servers.size(); i++) {
-                    if (servers[i].ip() == this->server_socket.ip()) {
-                        server_id = i;
-                    } else if (servers[i].ip() == leader_addr_received.ip()) {
-                        leader_id = i;
-                    }
-                }
-                if (server_id < leader_id) {
-                    start_election();
-                }
+        if (receive_server_packet(response_packet, leader_addr_received, expected_types, TIMEOUT_MS)) {
+            // Received response
+            std::cout << "Discovered leader server at " << leader_addr_received.ip_string() << std::endl;
 
-                return;
-            } else {
-                attempt--; // Invalid response, don't count this attempt
+            // Set leader address and receive state
+            this->leader_addr = leader_addr_received;
+            receive_leader_state(true);
+
+            // Check if the server has a lower ID than the leader to start an election
+            size_t server_id, leader_id;
+            for (size_t i = 0; i < servers.size(); i++) {
+                if (servers[i].ip() == this->server_socket.ip()) {
+                    server_id = i;
+                } else if (servers[i].ip() == leader_addr_received.ip()) {
+                    leader_id = i;
+                }
             }
+            if (server_id < leader_id) {
+                start_election();
+            }
+
+            return;
         }
         // If no response, loop continues and retransmits
     }
@@ -112,20 +109,16 @@ void Server::run_listening_loop() {
     uint8_t packet_buffer[sizeof(ServerPacket)];
     
     while (true) {
-        // Non-blocking receive
+        // Blocking receive
         int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(packet_buffer), address);
 
-        // Validate packet size (prevents processing truncated/malformed packets)
-        // Process valid packets in separate detached threads for concurrency
-        if (bytes_received > 0) {
-            // Determine if packet is from client or server based on first byte (packet type)
-            if (packet_buffer[0] >= STATE_SYNC_REQUEST) {
-                // Server packet
-                process_server_packet(*(ServerPacket*)packet_buffer, address);
-            } else {
-                // Client packet
-                std::thread(&Server::process_client_packet, this, *(ClientPacket*)packet_buffer, address).detach();
-            }
+        // Determine if packet is from client or server based on first byte (packet type)
+        if (packet_buffer[0] >= STATE_SYNC_REQUEST) {
+            // Server packet
+            process_server_packet(*(ServerPacket*)packet_buffer, address);
+        } else {
+            // Client packet
+            std::thread(&Server::process_client_packet, this, *(ClientPacket*)packet_buffer, address).detach();
         }
     }
 }
@@ -315,22 +308,17 @@ void Server::request_leader_state() {
     this->server_socket.send(&request_packet, request_packet.size(), this->leader_addr);
 
     // Wait for response with timeout
-    SocketAddress leader_addr;
+    SocketAddress leader_addr_received;
     ServerPacket response_packet;
-    int32_t bytes_received = this->server_socket.receive(&response_packet, sizeof(response_packet), this->leader_addr, TIMEOUT_MS);
-    
-    if (bytes_received > 0) {
-        // Received response: check if it's STATE_SYNC_ACK
-        if (response_packet.type == STATE_SYNC_ACK) {
-            // Set leader address and receive state
-            this->leader_addr = leader_addr;
-            receive_leader_state(false);
-            return;
-        }
+    std::vector<ServerPacketType> expected_types = {STATE_SYNC_ACK};
+    if (this->receive_server_packet(response_packet, leader_addr_received, expected_types, TIMEOUT_MS)) {
+        // Set leader address and receive state
+        this->leader_addr = leader_addr_received;
+        receive_leader_state(false);
+    } else {
+        // If no response after timeout, start election
+        start_election();
     }
-
-    // If no response after timeout, start election
-    start_election();
 }
 
 void Server::receive_leader_state(bool is_from_discovery) {
@@ -348,12 +336,11 @@ void Server::receive_leader_state(bool is_from_discovery) {
 
     // Receive Server infos
     while (true) {
-        uint32_t bytes_received;
-        do {
-            bytes_received = this->server_socket.receive(&response_packet, sizeof(response_packet), this->leader_addr, TIMEOUT_MS);
-        } while(bytes_received > 0 and (response_packet.type < SERVER_INFO or SEQ_AND_STATS < response_packet.type));
-        
-        if (bytes_received > 0 and response_packet.payload.server.seq_number == sync_seq++) {
+        std::vector<ServerPacketType> expected_types = {SERVER_INFO, CLIENT_INFO, SEQ_AND_STATS};
+        if (this->receive_server_packet(response_packet, this->leader_addr, expected_types, TIMEOUT_MS) and
+            response_packet.payload.server.seq_number == sync_seq++
+        ) {
+            // Valid packet received
             if (response_packet.type == SERVER_INFO) {
                 // Store server address in buffer
                 SocketAddress server_addr = response_packet.payload.server.addr;
@@ -376,19 +363,18 @@ void Server::receive_leader_state(bool is_from_discovery) {
         buffer_clients.insert(client_ip, client_info);
         
         while (true) {
-            uint32_t bytes_received;
-            do {
-                bytes_received = this->server_socket.receive(&response_packet, sizeof(response_packet), this->leader_addr, TIMEOUT_MS);
-            } while(bytes_received > 0 and (response_packet.type < CLIENT_INFO or SEQ_AND_STATS < response_packet.type));
-            
-            if (bytes_received > 0 and response_packet.payload.server.seq_number == sync_seq++) {
+            std::vector<ServerPacketType> expected_types = {CLIENT_INFO, SEQ_AND_STATS};
+            if (this->receive_server_packet(response_packet, this->leader_addr, expected_types, TIMEOUT_MS) and
+                response_packet.payload.server.seq_number == sync_seq++
+            ) {
+                // Valid packet received
                 if (response_packet.type == CLIENT_INFO) {
                     // Store client info in buffer
                     uint32_t client_ip = response_packet.payload.client.ip;
                     ClientInfo client_info = response_packet.payload.client.info;
                     buffer_clients.insert(client_ip, client_info);
                 } else {
-                    // Finished receiving client infos
+                    // Finished receiving client infos (received SEQ_AND_STATS)
                     break;
                 }
             } else {
@@ -569,9 +555,8 @@ void Server::ping_leader() {
     ServerPacket ping_packet(PING_LEADER);
     this->server_socket.send(&ping_packet, ping_packet.size(), this->leader_addr);
 
-    uint32_t bytes_received = this->server_socket.receive(&ping_packet, ping_packet.size(), this->leader_addr, TIMEOUT_MS);
-    
-    if (bytes_received == 0) {
+    std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
+    if (!this->receive_server_packet(ping_packet, this->leader_addr, expected_types, TIMEOUT_MS)) {
         // No response: start election
         start_election();
     }
@@ -594,60 +579,57 @@ void Server::start_election() {
         }
     }
 
-    // Wait for ELECTION_REQUEST_ACK responses with timeout
     SocketAddress addr;
     ServerPacket response_packet;
     int32_t bytes_received;
-
-    do {
-        bytes_received = this->server_socket.receive(&response_packet, sizeof(response_packet), addr, TIMEOUT_MS);
-        if (bytes_received > 0 and response_packet.type == ELECTION_REQUEST) {
+    
+    // Wait for ELECTION_REQUEST_ACK responses with timeout
+    std::vector<ServerPacketType> expected_types = {ELECTION_REQUEST_ACK};
+    if (this->receive_server_packet(response_packet, addr, expected_types, TIMEOUT_MS, [this](const ServerPacket& packet, const SocketAddress& addr) {
+        // Handle ELECTION_REQUEST packets while waiting for an ELECTION_REQUEST_ACK
+        if (packet.type == ELECTION_REQUEST) {
             // Send ACK back to requester
             ServerPacket ack_packet(ELECTION_REQUEST_ACK);
             this->server_socket.send(&ack_packet, ack_packet.size(), addr);
         }
-    } while (bytes_received > 0 and response_packet.type != ELECTION_REQUEST_ACK);
-
-    if (bytes_received > 0) {
+    })) {
         // Received ACK: another server will take over as leader
 
         // Wait for COORDINATOR message
-        do {
-            bytes_received = this->server_socket.receive(&response_packet, sizeof(response_packet), addr, TIMEOUT_MS);
-            if (bytes_received > 0 and response_packet.type == ELECTION_REQUEST) {
+        std::vector<ServerPacketType> expected_types = {ELECTION_REQUEST, COORDINATOR};
+        if (this->receive_server_packet(response_packet, addr, expected_types, TIMEOUT_MS, [this](const ServerPacket& packet, const SocketAddress& addr) {
+            // Handle ELECTION_REQUEST packets while waiting for COORDINATOR
+            if (packet.type == ELECTION_REQUEST) {
                 // Send ACK back to requester
                 ServerPacket ack_packet(ELECTION_REQUEST_ACK);
                 this->server_socket.send(&ack_packet, ack_packet.size(), addr);
             }
-        } while (bytes_received > 0 and response_packet.type != COORDINATOR);
-        
-        if (bytes_received > 0) {
+        })) {
             // Received COORDINATOR: Update leader address
             this->leader_addr = addr;
         } else {
             // No COORDINATOR received: start election again
             start_election();
         }
-        return;
-    }
-
-    // No ACKs received: elect self as leader
-    this->leader_addr = this->server_socket.address();
-    
-    // Send coordinator message to all other servers
-    ServerPacket coordinator_packet(COORDINATOR);
-    for (auto server : servers) {
-        if (server.ip() != this->server_socket.ip()) {
-            this->server_socket.send(&coordinator_packet, coordinator_packet.size(), server);
+    } else {
+        // No ELECTION_REQUEST_ACK received: elect self as leader
+        this->leader_addr = this->server_socket.address();
+        
+        // Send coordinator message to all other servers
+        ServerPacket coordinator_packet(COORDINATOR);
+        for (auto server : servers) {
+            if (server.ip() != this->server_socket.ip()) {
+                this->server_socket.send(&coordinator_packet, coordinator_packet.size(), server);
+            }
         }
-    }
 
-    // Send coordinator message to all clients
-    ClientPacket new_leader_packet = ClientPacket::create_new_leader(this->leader_addr);
-    for (auto client : clients) {
-        uint32_t ip = client.first;
-        uint16_t port = client.second.get()->value.port;
-        this->server_socket.send(&new_leader_packet, new_leader_packet.size(), SocketAddress(ip, port));
+        // Send NEW_LEADER message to all clients
+        ClientPacket new_leader_packet = ClientPacket::create_new_leader(this->leader_addr);
+        for (auto client : clients) {
+            uint32_t ip = client.first;
+            uint16_t port = client.second.get()->value.port;
+            this->server_socket.send(&new_leader_packet, new_leader_packet.size(), SocketAddress(ip, port));
+        }
     }
 }
 
@@ -675,7 +657,13 @@ void Server::handle_coordinator(const SocketAddress& server_addr) {
 
 // ===== Utility Functions =====
 
-bool Server::receive_server_packet(ServerPacket& packet, SocketAddress& server_addr, ServerPacketType type, uint32_t timeout_ms) {
+bool Server::receive_server_packet(
+    ServerPacket& packet,
+    SocketAddress& server_addr,
+    std::vector<ServerPacketType> expected_types,
+    uint32_t timeout_ms,
+    std::function<void(const ServerPacket&, const SocketAddress&)> unexpected_types_handler
+) {
     do {
         auto start_time = std::chrono::steady_clock::now();
         int32_t bytes_received = this->server_socket.receive(&packet, packet.size(), server_addr, timeout_ms);
@@ -683,8 +671,14 @@ bool Server::receive_server_packet(ServerPacket& packet, SocketAddress& server_a
 
         timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();
 
-        if (bytes_received > 0 and packet.type == type) {
-            return true;
+        if (bytes_received > 0) {
+            if (std::find(expected_types.begin(), expected_types.end(), packet.type) == expected_types.end()) {
+                // Unexpected packet type received: call handler
+                unexpected_types_handler(packet, server_addr);
+            } else {
+                // Expected packet type received: return true
+                return true;
+            }
         }
     } while(timeout_ms > 0);
 

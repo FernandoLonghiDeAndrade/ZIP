@@ -160,12 +160,19 @@ private:
     /**
      * @brief ### Receives a server packet of the specified type with timeout.
      * 
-     * @param packet [out] The packet to receive.
-     * @param type The expected packet type.
+     * @param packet [out] The received packet.
+     * @param type The expected packet type to return from the function.
      * @param timeout_ms The timeout duration in milliseconds.
+     * @param unexpected_types_handler The function to call when a packet of an unexpected type is received.
      * @return true if the packet was received successfully, false on timeout.
      */
-    bool receive_server_packet(ServerPacket& packet, SocketAddress& server_addr, ServerPacketType type, uint32_t timeout_ms);
+    bool receive_server_packet(
+        ServerPacket& packet,
+        SocketAddress& server_addr,
+        std::vector<ServerPacketType> expected_types,
+        uint32_t timeout_ms,
+        std::function<void(const ServerPacket&, const SocketAddress&)> unexpected_types_handler = [](const ServerPacket&, const SocketAddress&){}
+    );
 
     // ===== Server State =====
     
