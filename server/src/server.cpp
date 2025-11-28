@@ -5,6 +5,7 @@
 #include <thread>
 #include <cstring>
 #include <atomic>
+#include <chrono>
 
 // ===== Constructor =====
 
@@ -670,4 +671,22 @@ void Server::handle_coordinator(const SocketAddress& server_addr) {
             return;
         }
     }
+}
+
+// ===== Utility Functions =====
+
+bool Server::receive_server_packet(ServerPacket& packet, SocketAddress& server_addr, ServerPacketType type, uint32_t timeout_ms) {
+    do {
+        auto start_time = std::chrono::steady_clock::now();
+        int32_t bytes_received = this->server_socket.receive(&packet, packet.size(), server_addr, timeout_ms);
+        auto elapsed_time = std::chrono::steady_clock::now() - start_time;
+
+        timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();
+
+        if (bytes_received > 0 and packet.type == type) {
+            return true;
+        }
+    } while(timeout_ms > 0);
+
+    return false; // Return false on timeout
 }

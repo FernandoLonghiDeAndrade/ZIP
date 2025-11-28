@@ -155,6 +155,18 @@ private:
 
     void handle_coordinator(const SocketAddress& server_addr);
 
+    // ===== Utility Functions =====
+
+    /**
+     * @brief ### Receives a server packet of the specified type with timeout.
+     * 
+     * @param packet [out] The packet to receive.
+     * @param type The expected packet type.
+     * @param timeout_ms The timeout duration in milliseconds.
+     * @return true if the packet was received successfully, false on timeout.
+     */
+    bool receive_server_packet(ServerPacket& packet, SocketAddress& server_addr, ServerPacketType type, uint32_t timeout_ms);
+
     // ===== Server State =====
     
     uint16_t port;				///< UDP port for listening (shared for discovery and transactions)
