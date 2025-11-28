@@ -675,7 +675,6 @@ bool Server::receive_server_packet(
         timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();
 
         if (bytes_received > 0) {
-            std::cout << "Received packet of type " << static_cast<int>(packet.type) << " from " << server_addr.ip_string() << std::endl;
             if (std::find(expected_types.begin(), expected_types.end(), packet.type) == expected_types.end()) {
                 // Unexpected packet type received: call handler
                 unexpected_types_handler(packet, server_addr);
@@ -684,8 +683,7 @@ bool Server::receive_server_packet(
                 return true;
             }
         }
-
-        std::cout << timeout_ms << std::endl;
+        
     } while(timeout_ms > 0);
 
     return false; // Return false on timeout
