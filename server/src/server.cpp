@@ -15,15 +15,6 @@ Server::Server(uint16_t port) : port(port) {
         throw std::runtime_error("Failed to initialize UDP address");
     }
 
-    // Clear socket
-    uint32_t bytes_received;
-    do {
-        ServerPacket packet;
-        SocketAddress addr;
-        bytes_received = server_socket.receive(&packet, sizeof(ServerPacket), addr, 0);
-        printf("Clearing socket, received %u bytes\n", bytes_received);
-    } while (bytes_received > 0);
-
     // Initialize statistics
     num_transactions = 0;
     total_transferred = 0;
@@ -77,6 +68,9 @@ void Server::discover_leader_server() {
                 }
             }
             if (server_id < leader_id) {
+                std::cout << "This server id: " << server_id << std::endl;
+                std::cout << "Leader server id: " << leader_id << std::endl;
+                std::cout << "This server has a lower ID than the leader. Starting election..." << std::endl;
                 start_election();
             }
 
@@ -113,6 +107,7 @@ void Server::run_listening_loop() {
         // Check if this server is leader
         if (this->server_socket.ip() != this->leader_addr.ip()) {
             // Not leader: ping leader
+            std::cout << "\nPinging leader server at " << this->leader_addr.ip_string() << std::endl;
             ping_leader();
         }
     }
@@ -456,11 +451,13 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
         }
     }
     if (new_server) {
-        // Server is new, add to the list and send new server sync to the other servers
+        // Server is new, send new server sync to the other servers and add it to the list
         this->servers.push_back(server_addr);
         ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(this->seq_number++, server_addr);
         for (auto server : servers) {
-            this->server_socket.send(&new_server_sync_packet, new_server_sync_packet.size(), server);
+            if (server.ip() != server_addr.ip() and server.ip() != this->server_socket.ip()) {
+                this->server_socket.send(&new_server_sync_packet, new_server_sync_packet.size(), server);
+            }
         }
     }
 
@@ -669,13 +666,10 @@ bool Server::receive_server_packet(
 ) {
     while (true) {
         auto start_time = std::chrono::steady_clock::now();
-        std::cout << "DEBUG: calling receive" << std::endl;
         int32_t bytes_received = this->server_socket.receive(&packet, packet.size(), server_addr, timeout_ms);
-        std::cout << "DEBUG: returned from receive, bytes_received = " << bytes_received << std::endl;
         auto elapsed_time = std::chrono::steady_clock::now() - start_time;
 
         timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();
-        //std::cout << "DEBUG: receive_server_packet timeout_ms remaining: " << timeout_ms << " ms" << std::endl;
         if (timeout_ms <= 0) {
             return false; // Timeout reached
         }

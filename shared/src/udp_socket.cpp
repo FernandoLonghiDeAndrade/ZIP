@@ -131,11 +131,46 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
     struct sockaddr_in bind_addr {};
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_port = htons(port);
-    bind_addr.sin_addr.s_addr = INADDR_ANY;  // SEMPRE INADDR_ANY para receber broadcasts
+    bind_addr.sin_addr.s_addr = INADDR_ANY;
 
     if (bind(sock_fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr)) < 0) {
         close_socket();
         return false;
+    }
+
+    // Clear socket buffer: drain all pending packets using non-blocking receive
+    char drain_buffer[65536];
+    struct sockaddr_in drain_addr;
+    socklen_t addr_len;
+    int drain_count = 0;
+    
+    while (true) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sock_fd, &read_fds);
+        
+        struct timeval tv = {0, 0};  // timeout_ms = 0 → non-blocking
+        
+        #ifdef _WIN32
+            int select_result = select(0, &read_fds, nullptr, nullptr, &tv);
+        #else
+            int select_result = select(sock_fd + 1, &read_fds, nullptr, nullptr, &tv);
+        #endif
+        
+        if (select_result <= 0) break;  // No more packets or error
+        
+        addr_len = sizeof(drain_addr);
+        ssize_t n = recvfrom(sock_fd, drain_buffer, sizeof(drain_buffer), 0,
+                            (struct sockaddr*)&drain_addr, &addr_len);
+        if (n > 0) {
+            drain_count++;
+        } else {
+            break;
+        }
+    }
+    
+    if (drain_count > 0) {
+        std::cout << "[DEBUG] Drained " << drain_count << " stale packets from socket buffer\n";
     }
 
     return true;
