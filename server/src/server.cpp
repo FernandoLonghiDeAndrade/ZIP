@@ -6,6 +6,7 @@
 #include <cstring>
 #include <atomic>
 #include <chrono>
+#include <algorithm>
 
 // ===== Constructor =====
 
@@ -108,7 +109,12 @@ void Server::run_listening_loop() {
                 process_server_packet(*(ServerPacket*)packet_buffer, address);
             } else {
                 // Client packet
-                std::thread(&Server::process_client_packet, this, *(ClientPacket*)packet_buffer, address).detach();
+                std::thread(&Server::process_client_packet,
+                            this,
+                            ClientPacket(*reinterpret_cast<ClientPacket*>(packet_buffer)),
+                            SocketAddress(address))
+                    .detach();
+                //std::thread(&Server::process_client_packet, this, *(ClientPacket*)packet_buffer, address).detach();
             }
         }
         
