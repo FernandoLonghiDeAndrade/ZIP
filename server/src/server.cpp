@@ -143,7 +143,13 @@ void Server::process_client_packet(const ClientPacket& packet, const SocketAddre
     }
 }
 
-void Server::handle_client_discovery(const SocketAddress& client_addr) {    
+void Server::handle_client_discovery(const SocketAddress& client_addr) {
+    // Only the leader processes client discovery requests
+    if (this->server_socket.ip() != this->leader_addr.ip()) {
+        // Not the leader: ignore discovery requests
+        return;
+    }
+    
     // Attempt to register new client (insert returns false if already exists)
     if (clients.insert(client_addr.ip(), ClientInfo(client_addr.port()))) {
         // New client registered: update global balance to reflect new account
