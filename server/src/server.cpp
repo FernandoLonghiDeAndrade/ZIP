@@ -485,11 +485,6 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
 
     uint32_t sync_seq = 0;
 
-    // DEBUG: Send a packet first to dodge the 0.0.0.0:0 issue
-    ServerPacket debug_packet = ServerPacket::create_server_info(sync_seq++, this->server_socket.address());
-    this->server_socket.send(&debug_packet, sizeof(ServerPacket), server_addr);
-    if (cancel.load()) return; // Check if it should stop
-
     // Send each server's info to the other server
     for (auto server : servers) {
         ServerPacket server_info_packet = ServerPacket::create_server_info(sync_seq++, server);
