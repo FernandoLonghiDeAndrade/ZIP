@@ -347,10 +347,8 @@ void Server::receive_leader_state(bool is_from_discovery) {
             // Valid packet received
             if (response_packet.type == SERVER_INFO) {
                 // Store server address in buffer
-                uint32_t server_ip = response_packet.payload.server.ip;
-                uint16_t server_port = response_packet.payload.server.port;
-                std::cout << "DEBUG: server port: " << server_port << std::endl;
-                SocketAddress server_addr(server_ip, server_port);
+                SocketAddress server_addr = response_packet.payload.server.addr;
+                std::cout << "DEBUG: server port: " << server_addr.port() << std::endl;
                 std::cout << "DEBUG: Received server info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
                 buffer_servers.push_back(server_addr);
             } else {
@@ -514,10 +512,9 @@ void Server::handle_new_server_sync(const ServerPacket& packet) {
         return;
     }
 
-    uint32_t new_server_ip = packet.payload.server.ip;
-    uint16_t new_server_port = packet.payload.server.port;
+    SocketAddress new_server_addr = packet.payload.server.addr;
 
-    this->servers.push_back(SocketAddress(new_server_ip, new_server_port));
+    this->servers.push_back(new_server_addr);
 }
 
 void Server::handle_new_client_sync(const ServerPacket& packet) {
