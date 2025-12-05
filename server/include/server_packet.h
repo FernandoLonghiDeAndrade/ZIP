@@ -114,14 +114,14 @@ struct ServerPacket {
     }
 
     static ServerPacket create_new_server_sync(uint32_t seq_number, SocketAddress server_addr) {
-        ServerPacket p(SERVER_INFO);
+        ServerPacket p(NEW_SERVER_SYNC);
         p.payload.server.seq_number = seq_number;
         p.payload.server.addr = server_addr;
         return p;
     }
 
     static ServerPacket create_new_client_sync(uint32_t seq_number, uint32_t ip, ClientInfo info) {
-        ServerPacket p(CLIENT_INFO);
+        ServerPacket p(NEW_CLIENT_SYNC);
         p.payload.client.seq_number = seq_number;
         p.payload.client.ip = ip;
         p.payload.client.info = info;

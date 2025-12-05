@@ -639,10 +639,11 @@ void Server::start_election() {
 
         this->leader_addr = this->server_socket.address();
         
-        // Send coordinator message to all other servers
+        // Send coordinator message to all other servers (exclude self)
         ServerPacket coordinator_packet(COORDINATOR);
         for (auto server : servers) {
             if (server.ip() != this->server_socket.ip()) {
+                std::cout << "DEBUG: Sending COORDINATOR to server at " << server.ip_string() << std::endl;
                 this->server_socket.send(&coordinator_packet, sizeof(ServerPacket), server);
             }
         }
