@@ -92,12 +92,12 @@ void Server::run_listening_loop() {
     uint8_t packet_buffer[sizeof(ServerPacket)];
     
     while (true) {
-        // Blocking receive
-        int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(packet_buffer), address, TIMEOUT_MS);
+        // Non blocking receive with timeout
+        int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(ServerPacket), address, TIMEOUT_MS);
 
         // DEBUG
         for (auto server : servers) {
-            std::cout << "DEBUG: Known server: " << server.ip() << std::endl;
+            std::cout << "DEBUG: Known server: " << server.ip_string() << ":" << server.port() << std::endl;
         }
         std::cout << std::endl;
 
@@ -347,7 +347,7 @@ void Server::receive_leader_state(bool is_from_discovery) {
             if (response_packet.type == SERVER_INFO) {
                 // Store server address in buffer
                 SocketAddress server_addr = response_packet.payload.server.addr;
-                std::cout << "DEBUG: Received Server info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
+                std::cout << "DEBUG: Received Server Info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
                 if (server_addr.ip() == 0) {
                     // Skip invalid address (0.0.0.0)
                     continue;
@@ -472,10 +472,11 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     if (new_server) {
         // Server is new, send new server sync to the other servers and add it to the list
         ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(this->seq_number++, server_addr);
+        std::cout << "DEBUG: New Server: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
         for (auto server : servers) {
             // Check to not send to itself
             if (server.ip() != this->server_socket.ip()) {
-                std::cout << "DEBUG: Sending NEW_SERVER_SYNC to server ip: " << server.ip() << std::endl;
+                std::cout << "DEBUG: Sending NEW_SERVER_SYNC to server: " << server.ip_string() << ":" << server.port() << std::endl;
                 this->server_socket.send(&new_server_sync_packet, sizeof(ServerPacket), server);
             }
         }
@@ -490,8 +491,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     // Send each server's info to the other server
     for (auto server : servers) {
         ServerPacket server_info_packet = ServerPacket::create_server_info(sync_seq++, server);
-        std::cout << "DEBUG: Sending Server ip: " << server.ip() << std::endl;
-        std::cout << "DEBUG: Sending Server port: " << server.port() << std::endl;
+        std::cout << "DEBUG: Sending Server Info: " << server.ip_string() << ":" << server.port() << std::endl;
         this->server_socket.send(&server_info_packet, sizeof(ServerPacket), server_addr);
         if (cancel.load()) return; // Check if it should stop
     }
