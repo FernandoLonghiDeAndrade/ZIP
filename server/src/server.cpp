@@ -149,7 +149,7 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
         // Not the leader: ignore discovery requests
         return;
     }
-    
+
     // Attempt to register new client (insert returns false if already exists)
     if (clients.insert(client_addr.ip(), ClientInfo(client_addr.port()))) {
         // New client registered: update global balance to reflect new account
@@ -161,6 +161,17 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
         ClientInfo default_info(client_addr.port());
         ClientPacket reply_packet = ClientPacket::create_reply(CLIENT_DISCOVERY_ACK, default_info.last_processed_request_id, default_info.balance);
         server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
+
+        // Send NEW_CLIENT_SYNC to other servers to inform about new client
+        ServerPacket new_client_packet = ServerPacket::create_new_client_sync(++seq_number, client_addr.ip(), default_info);
+        for (const auto& server : servers) {
+            // Don't send to self
+            if (server.ip() != this->server_socket.ip()) {
+                std::cout << "DEBUG: Sending NEW_CLIENT_SYNC to " << server.ip_string() << std::endl;
+                server_socket.send(&new_client_packet, sizeof(ServerPacket), server);
+            }
+        }
+
         return;
     }
     
@@ -305,6 +316,10 @@ void Server::process_server_packet(const ServerPacket& packet, const SocketAddre
         case NEW_SERVER_SYNC:
             std::cout << "\nReceived NEW_SERVER_SYNC from " << server_addr.ip_string() << std::endl;
             handle_new_server_sync(packet);
+            break;
+        case NEW_CLIENT_SYNC:
+            std::cout << "\nReceived NEW_CLIENT_SYNC from " << server_addr.ip_string() << std::endl;
+            handle_new_client_sync(packet);
             break;
         case NEW_TRANSACTION_SYNC:
             std::cout << "\nReceived NEW_TRANSACTION_SYNC from " << server_addr.ip_string() << std::endl;
