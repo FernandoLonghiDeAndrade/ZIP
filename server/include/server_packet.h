@@ -67,8 +67,6 @@ struct NewTransactionSyncPayload {
 
 /**
  * @brief ### Packet for server-to-server communication.
- * 
- * Variable size depending on payload type.
  */
 struct ServerPacket {
     ServerPacketType type;

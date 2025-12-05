@@ -84,8 +84,7 @@ void Server::discover_leader_server() {
     std::cout << "No leader discovered after 3 attempts. Electing self as leader." << std::endl;
     leader_addr = this->server_socket.address();
     std::cout << "Leader server is at " << leader_addr.ip_string() << std::endl;
-    servers.push_back(leader_addr);
-    std::cout << servers[0].ip_string() << std::endl;
+    servers.push_back(this->server_socket.address());
 }
 
 void Server::run_listening_loop() {
@@ -98,7 +97,7 @@ void Server::run_listening_loop() {
 
         // DEBUG
         for (auto server : servers) {
-            std::cout << "DEBUG: Known server: " << server.ip_string() << std::endl;
+            std::cout << "DEBUG: Known server: " << server.ip() << std::endl;
         }
         std::cout << std::endl;
 
@@ -348,8 +347,12 @@ void Server::receive_leader_state(bool is_from_discovery) {
             if (response_packet.type == SERVER_INFO) {
                 // Store server address in buffer
                 SocketAddress server_addr = response_packet.payload.server.addr;
-                std::cout << "DEBUG: server port: " << server_addr.port() << std::endl;
-                std::cout << "DEBUG: Received server info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
+                std::cout << "DEBUG: Received Server port: " << server_addr.port() << std::endl;
+                std::cout << "DEBUG: Received Server info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
+                if (server_addr.ip() == 0) {
+                    // Skip invalid address (0.0.0.0)
+                    continue;
+                }
                 buffer_servers.push_back(server_addr);
             } else {
                 // Finished receiving server infos
@@ -471,7 +474,8 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
         this->servers.push_back(server_addr);
         ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(this->seq_number++, server_addr);
         for (auto server : servers) {
-            if (server.ip() != server_addr.ip() and server.ip() != this->server_socket.ip()) {
+            // Check to not send to itself neither to the new server
+            if (server.ip() != this->server_socket.ip() and server.ip() != server_addr.ip()) {
                 this->server_socket.send(&new_server_sync_packet, sizeof(ServerPacket), server);
             }
         }
@@ -481,10 +485,16 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
 
     uint32_t sync_seq = 0;
 
+    // DEBUG: Send a packet first to dodge the 0.0.0.0:0 issue
+    ServerPacket debug_packet = ServerPacket::create_server_info(sync_seq++, this->server_socket.address());
+    this->server_socket.send(&debug_packet, sizeof(ServerPacket), server_addr);
+    if (cancel.load()) return; // Check if it should stop
+
     // Send each server's info to the other server
     for (auto server : servers) {
-        std::cout << "DEBUG: Sending server info: " << server.ip_string() << std::endl;
         ServerPacket server_info_packet = ServerPacket::create_server_info(sync_seq++, server);
+        std::cout << "DEBUG: Sending Server ip: " << server.ip() << std::endl;
+        std::cout << "DEBUG: Sending Server port: " << server.port() << std::endl;
         this->server_socket.send(&server_info_packet, sizeof(ServerPacket), server_addr);
         if (cancel.load()) return; // Check if it should stop
     }
