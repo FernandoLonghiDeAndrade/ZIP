@@ -59,12 +59,12 @@ void Client::discover_server() {
 
     // Retry loop: send CLIENT_DISCOVERY every ACK_TIMEOUT_MS until server responds
     while (!has_server_address) {
-        client_socket.send(&discovery_packet, discovery_packet.size(), server_addr);
+        client_socket.send(&discovery_packet, sizeof(ClientPacket), server_addr);
         
         // Check if CLIENT_DISCOVERY_ACK arrived (non-blocking receive)
         ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
         SocketAddress received_from_addr;
-        if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr, ACK_TIMEOUT_MS) > 0) {
+        if (client_socket.receive(&response_packet, sizeof(ClientPacket), received_from_addr, ACK_TIMEOUT_MS) > 0) {
             if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                 // Success: store server's address for future transactions
                 this->server_addr = received_from_addr;
@@ -85,11 +85,11 @@ void Client::connect_to_known_server() {
     // Retry loop: server might not be ready yet or packets might be lost
     bool received_ack = false;
     while (!received_ack) {
-        client_socket.send(&discovery_packet, discovery_packet.size(), server_addr);
+        client_socket.send(&discovery_packet, sizeof(ClientPacket), server_addr);
         
         ClientPacket response_packet(CLIENT_DISCOVERY_ACK);
         SocketAddress received_from_addr;
-        if (client_socket.receive(&response_packet, response_packet.size(), received_from_addr, ACK_TIMEOUT_MS) > 0) {
+        if (client_socket.receive(&response_packet, sizeof(ClientPacket), received_from_addr, ACK_TIMEOUT_MS) > 0) {
             if (response_packet.type == CLIENT_DISCOVERY_ACK) {
                 // Verify response came from expected server (could add IP validation here)
                 this->server_addr = received_from_addr;
@@ -154,7 +154,7 @@ void Client::send_request(const ClientPacket& packet) {
     // Stop-and-wait loop: retransmit every ACK_TIMEOUT_MS until ACK arrives
     while (pending_ack_request_id.load() == packet.payload.request.id) {
         // Send packet to server
-        if (!client_socket.send(&packet, packet.size(), server_addr)) {
+        if (!client_socket.send(&packet, sizeof(ClientPacket), server_addr)) {
             // Socket send failed (network error), abort this request
             pending_ack_request_id.store(0); // Clear pending state
             return;

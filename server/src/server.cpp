@@ -43,7 +43,7 @@ void Server::discover_leader_server() {
 
     for (int attempt = 0; attempt < 3; attempt++) {
         std::cout << "Broadcasting STATE_SYNC_REQUEST (attempt " << (attempt + 1) << "/3)..." << std::endl;
-        server_socket.send(&discovery_packet, discovery_packet.size(), SocketAddress::broadcast(port));
+        server_socket.send(&discovery_packet, sizeof(ServerPacket), SocketAddress::broadcast(port));
 
         // Wait for response with timeout
         SocketAddress leader_addr_received;
@@ -155,7 +155,7 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
         // Send ACK with default initial values
         ClientInfo default_info(client_addr.port());
         ClientPacket reply_packet = ClientPacket::create_reply(CLIENT_DISCOVERY_ACK, default_info.last_processed_request_id, default_info.balance);
-        server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
         return;
     }
     
@@ -165,7 +165,7 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
 
     // Send ACK with current client state (idempotent: repeated discoveries get same response)
     ClientPacket reply_packet = ClientPacket::create_reply(CLIENT_DISCOVERY_ACK, client_info.last_processed_request_id, client_info.balance);
-    server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+    server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
 }
 
 void Server::handle_transaction(const ClientPacket& packet, const SocketAddress& client_addr) {
@@ -179,7 +179,7 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
     if (!src_opt) {
         // Source not registered: should never happen if client followed discovery protocol
         ClientPacket reply_packet(ERROR_ACK);
-        server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
         return;
     }
     src_client = *src_opt;
@@ -190,7 +190,7 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
         // Send cached response (same ACK as original, prevents double-spending)
         PrintUtils::print_request(src_client_ip, packet, true, num_transactions, total_transferred, total_balance);
         ClientPacket reply_packet = ClientPacket::create_reply(TRANSACTION_ACK, src_client.last_processed_request_id, src_client.balance);
-        server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
         return;
     }
 
@@ -208,7 +208,7 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
     if (packet.payload.request.value == 0) {
         // Valid request, but no balance change needed
         ClientPacket reply_packet = ClientPacket::create_reply(TRANSACTION_ACK, packet.payload.request.id, src_client.balance);
-        server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
         return;
     }
 
@@ -218,7 +218,7 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
     if (!dest_opt) {
         // Destination not registered: client tried to send to non-existent account
         ClientPacket reply_packet(INVALID_CLIENT_ACK);
-        server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
         return;
     } else {
         dest_client = *dest_opt;
@@ -228,7 +228,7 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
     if (src_client_ip == dest_client_ip) {
         // Sending money to yourself: valid but no balance change
         ClientPacket reply_packet = ClientPacket::create_reply(TRANSACTION_ACK, src_client.last_processed_request_id, src_client.balance);
-        server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
         return;
     }
 
@@ -236,7 +236,7 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
     if (src_client.balance < packet.payload.request.value) {
         // Insufficient funds: transaction rejected
         ClientPacket reply_packet(INSUFFICIENT_BALANCE_ACK);
-        server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
         return;
     }
 
@@ -268,7 +268,7 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
 
     // ===== Send success ACK with new balance =====
     ClientPacket reply_packet = ClientPacket::create_reply(TRANSACTION_ACK, src_client.last_processed_request_id, client_new_balance);
-    server_socket.send(&reply_packet, reply_packet.size(), client_addr);
+    server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
 
     // Print transaction summary (uses updated stats from above)
     PrintUtils::print_request(src_client_ip, packet, false, num_transactions, total_transferred, total_balance);
@@ -309,7 +309,7 @@ void Server::process_server_packet(const ServerPacket& packet, const SocketAddre
 void Server::request_leader_state() {
     ServerPacket request_packet(STATE_SYNC_REQUEST);
 
-    this->server_socket.send(&request_packet, request_packet.size(), this->leader_addr);
+    this->server_socket.send(&request_packet, sizeof(ServerPacket), this->leader_addr);
 
     // Wait for response with timeout
     SocketAddress leader_addr_received;
@@ -455,7 +455,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     
     // Send STATE_SYNC_ACK response
     ServerPacket reply_packet(STATE_SYNC_ACK);
-    this->server_socket.send(&reply_packet, reply_packet.size(), server_addr);
+    this->server_socket.send(&reply_packet, sizeof(ServerPacket), server_addr);
 
     if (cancel.load()) return; // Check if it should stop
 
@@ -472,7 +472,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
         ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(this->seq_number++, server_addr);
         for (auto server : servers) {
             if (server.ip() != server_addr.ip() and server.ip() != this->server_socket.ip()) {
-                this->server_socket.send(&new_server_sync_packet, new_server_sync_packet.size(), server);
+                this->server_socket.send(&new_server_sync_packet, sizeof(ServerPacket), server);
             }
         }
     }
@@ -485,20 +485,20 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     for (auto server : servers) {
         std::cout << "DEBUG: Sending server info: " << server.ip_string() << std::endl;
         ServerPacket server_info_packet = ServerPacket::create_server_info(sync_seq++, server);
-        this->server_socket.send(&server_info_packet, server_info_packet.size(), server_addr);
+        this->server_socket.send(&server_info_packet, sizeof(ServerPacket), server_addr);
         if (cancel.load()) return; // Check if it should stop
     }
     
     // Send each client's info to the otherserver
     for (auto client : clients) {
         ServerPacket client_info_packet = ServerPacket::create_client_info(sync_seq++, client.first, client.second.get()->value);
-        this->server_socket.send(&client_info_packet, client_info_packet.size(), server_addr);
+        this->server_socket.send(&client_info_packet, sizeof(ServerPacket), server_addr);
         if (cancel.load()) return; // Check if it should stop
     }
 
     // Send sequence number and stats to the other server
     ServerPacket seq_and_stats_packet = ServerPacket::create_seq_and_stats(sync_seq, seq_number, num_transactions, total_transferred, total_balance);
-    this->server_socket.send(&seq_and_stats_packet, seq_and_stats_packet.size(), server_addr);
+    this->server_socket.send(&seq_and_stats_packet, sizeof(ServerPacket), server_addr);
 
     finished.store(true); // Signal that sync is finished
 }
@@ -562,7 +562,7 @@ void Server::handle_new_transaction_sync(const ServerPacket& packet) {
 
 void Server::ping_leader() {
     ServerPacket ping_packet(PING_LEADER);
-    this->server_socket.send(&ping_packet, ping_packet.size(), this->leader_addr);
+    this->server_socket.send(&ping_packet, sizeof(ServerPacket), this->leader_addr);
 
     std::cout << "Waiting for PING_LEADER_ACK from leader..." << std::endl;
     std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
@@ -577,7 +577,7 @@ void Server::ping_leader() {
 
 void Server::handle_ping_leader(const SocketAddress& server_addr) {
     ServerPacket ping_ack_packet(PING_LEADER_ACK);
-    this->server_socket.send(&ping_ack_packet, ping_ack_packet.size(), server_addr);
+    this->server_socket.send(&ping_ack_packet, sizeof(ServerPacket), server_addr);
 }
 
 void Server::start_election() {
@@ -589,7 +589,7 @@ void Server::start_election() {
             break;
         } else {
             ServerPacket election_request_packet(ELECTION_REQUEST);
-            this->server_socket.send(&election_request_packet, election_request_packet.size(), server);
+            this->server_socket.send(&election_request_packet, sizeof(ServerPacket), server);
         }
     }
 
@@ -604,7 +604,7 @@ void Server::start_election() {
         if (packet.type == ELECTION_REQUEST) {
             // Send ACK back to requester
             ServerPacket ack_packet(ELECTION_REQUEST_ACK);
-            this->server_socket.send(&ack_packet, ack_packet.size(), addr);
+            this->server_socket.send(&ack_packet, sizeof(ServerPacket), addr);
         }
     })) {
         // Received ACK: another server will take over as leader
@@ -616,7 +616,7 @@ void Server::start_election() {
             if (packet.type == ELECTION_REQUEST) {
                 // Send ACK back to requester
                 ServerPacket ack_packet(ELECTION_REQUEST_ACK);
-                this->server_socket.send(&ack_packet, ack_packet.size(), addr);
+                this->server_socket.send(&ack_packet, sizeof(ServerPacket), addr);
             }
         })) {
             // Received COORDINATOR: Update leader address
@@ -636,7 +636,7 @@ void Server::start_election() {
         ServerPacket coordinator_packet(COORDINATOR);
         for (auto server : servers) {
             if (server.ip() != this->server_socket.ip()) {
-                this->server_socket.send(&coordinator_packet, coordinator_packet.size(), server);
+                this->server_socket.send(&coordinator_packet, sizeof(ServerPacket), server);
             }
         }
 
@@ -645,7 +645,7 @@ void Server::start_election() {
         for (auto client : clients) {
             uint32_t ip = client.first;
             uint16_t port = client.second.get()->value.port;
-            this->server_socket.send(&new_leader_packet, new_leader_packet.size(), SocketAddress(ip, port));
+            this->server_socket.send(&new_leader_packet, sizeof(ClientPacket), SocketAddress(ip, port));
         }
     }
 }
@@ -653,7 +653,7 @@ void Server::start_election() {
 void Server::handle_election_request(const SocketAddress& server_addr) {
     // Send ELECTION_REQUEST_ACK back to requester and start election
     ServerPacket ack_packet(ELECTION_REQUEST_ACK);
-    this->server_socket.send(&ack_packet, ack_packet.size(), server_addr);
+    this->server_socket.send(&ack_packet, sizeof(ServerPacket), server_addr);
     start_election();
 }
 
@@ -683,7 +683,7 @@ bool Server::receive_server_packet(
 ) {
     while (true) {
         auto start_time = std::chrono::steady_clock::now();
-        int32_t bytes_received = this->server_socket.receive(&packet, packet.size(), server_addr, timeout_ms);
+        int32_t bytes_received = this->server_socket.receive(&packet, sizeof(ServerPacket), server_addr, timeout_ms);
         auto elapsed_time = std::chrono::steady_clock::now() - start_time;
 
         timeout_ms -= std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time).count();

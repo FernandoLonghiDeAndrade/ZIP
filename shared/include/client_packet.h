@@ -136,28 +136,4 @@ struct ClientPacket {
         p.payload.new_leader.addr = new_leader_addr;
         return p;
     }
-
-    /**
-     * @brief ### Calculate exact packet size for efficient UDP transmission.
-     * 
-     * @return Size in bytes of the serialized packet (type + active payload).
-     */
-    size_t size() const {
-        size_t base_size = sizeof(ClientPacketType);
-        
-        switch (type) {            
-            case TRANSACTION_REQUEST:
-                return base_size + sizeof(RequestPayload);
-            
-            case CLIENT_DISCOVERY_ACK:
-            case TRANSACTION_ACK:
-                return base_size + sizeof(ReplyPayload) - sizeof(uint16_t); // Doesn't send port number
-            
-            case NEW_LEADER:
-                return base_size + sizeof(NewLeaderPayload);
-
-            default:
-                return base_size;
-        }
-    }
 };

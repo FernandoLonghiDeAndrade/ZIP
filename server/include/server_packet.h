@@ -138,36 +138,4 @@ struct ServerPacket {
         p.payload.new_transaction.value = value;
         return p;
     }
-
-    /**
-     * @brief ### Calculate exact packet size for efficient UDP transmission.
-     * 
-     * @return Size in bytes of the serialized packet (type + active payload variant).
-     */
-    size_t size() const {
-        size_t base_size = sizeof(ServerPacketType);
-        
-        switch (type) {
-            case CLIENT_INFO:
-                return base_size + sizeof(ClientInfoPayload);
-            
-            case SERVER_INFO:
-                return base_size + sizeof(ServerInfoPayload);
-            
-            case SEQ_AND_STATS:
-                return base_size + sizeof(SeqAndStatsPayload);
-            
-            case NEW_SERVER_SYNC:
-                return base_size + sizeof(ServerInfoPayload);
-            
-            case NEW_CLIENT_SYNC:
-                return base_size + sizeof(ClientInfoPayload);
-
-            case NEW_TRANSACTION_SYNC:
-                return base_size + sizeof(NewTransactionSyncPayload);
-
-            default:
-                return base_size;
-        }
-    }
 };
