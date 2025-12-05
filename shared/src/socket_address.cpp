@@ -47,17 +47,17 @@ SocketAddress::SocketAddress(const std::string& ip, uint16_t port) {
     inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
 }
 
-SocketAddress::SocketAddress(uint32_t ip_network_byte_order, uint16_t port) {
+SocketAddress::SocketAddress(uint32_t ip_host_order, uint16_t port_host_order) {
     std::memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = ip_network_byte_order;
+    addr.sin_port = htons(port_host_order);
+    addr.sin_addr.s_addr = htonl(ip_host_order);
 }
 
 SocketAddress::SocketAddress(const struct sockaddr_in& addr) : addr(addr) {}
 
-SocketAddress SocketAddress::broadcast(uint16_t port) {
-    return SocketAddress("255.255.255.255", port);
+SocketAddress SocketAddress::broadcast(uint16_t port_host_order) {
+    return SocketAddress("255.255.255.255", port_host_order);
 }
 
 std::string SocketAddress::ip_string() const {
@@ -67,7 +67,7 @@ std::string SocketAddress::ip_string() const {
 }
 
 uint32_t SocketAddress::ip() const {
-    return addr.sin_addr.s_addr;
+    return ntohl(addr.sin_addr.s_addr);
 }
 
 uint16_t SocketAddress::port() const {

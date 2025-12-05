@@ -150,6 +150,8 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
         return;
     }
 
+    std::cout << "DEBUG: Registering new client at " << client_addr.ip_string() << ":" << client_addr.port() << std::endl;
+
     // Attempt to register new client (insert returns false if already exists)
     if (clients.insert(client_addr.ip(), ClientInfo(client_addr.port()))) {
         // New client registered: update global balance to reflect new account
@@ -171,17 +173,15 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
                 server_socket.send(&new_client_packet, sizeof(ServerPacket), server);
             }
         }
+    } else {
+        // Client already exists: read current state (uses LockedMap read lock)
+        // Unwrap optional (guaranteed to exist since insert() returned false)
+        ClientInfo client_info = *clients.read(client_addr.ip());
 
-        return;
+        // Send ACK with current client state (idempotent: repeated discoveries get same response)
+        ClientPacket reply_packet = ClientPacket::create_reply(CLIENT_DISCOVERY_ACK, client_info.last_processed_request_id, client_info.balance);
+        server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
     }
-    
-    // Client already exists: read current state (uses LockedMap read lock)
-    // Unwrap optional (guaranteed to exist since insert() returned false)
-    ClientInfo client_info = *clients.read(client_addr.ip());
-
-    // Send ACK with current client state (idempotent: repeated discoveries get same response)
-    ClientPacket reply_packet = ClientPacket::create_reply(CLIENT_DISCOVERY_ACK, client_info.last_processed_request_id, client_info.balance);
-    server_socket.send(&reply_packet, sizeof(ClientPacket), client_addr);
 }
 
 void Server::handle_transaction(const ClientPacket& packet, const SocketAddress& client_addr) {

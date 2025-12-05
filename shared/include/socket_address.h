@@ -32,12 +32,12 @@ public:
     SocketAddress(const std::string& ip, uint16_t port = 0);
     
     /**
-     * @brief ### Creates address from raw IP (network byte order) and port.
+     * @brief ### Creates address from raw IP and port (both in host byte order).
      * 
-     * @param ip_network_byte_order 32-bit IP in network byte order.
-     * @param port Port number in host byte order.
+     * @param ip_host_order 32-bit IP in host byte order.
+     * @param port_host_order Port number in host byte order.
      */
-    SocketAddress(uint32_t ip_network_byte_order, uint16_t port = 0);
+    SocketAddress(uint32_t ip_host_order, uint16_t port_host_order = 0);
     
     /**
      * @brief ### Creates address from sockaddr_in (internal use by UDPSocket).
@@ -54,10 +54,10 @@ public:
     /**
      * @brief ### Creates broadcast address (255.255.255.255) on given port.
      * 
-     * @param port Port number in host byte order.
+     * @param port_host_order Port number in host byte order.
      * @return SocketAddress configured for broadcast.
      */
-    static SocketAddress broadcast(uint16_t port);
+    static SocketAddress broadcast(uint16_t port_host_order);
     
     /**
      * @brief ### Returns IP address as human-readable string.
@@ -67,16 +67,16 @@ public:
     std::string ip_string() const;
     
     /**
-     * @brief ### Returns IP address as 32-bit integer (network byte order).
+     * @brief ### Returns IP address as 32-bit integer (host byte order).
      * 
-     * @return IP in network byte order (use htonl/ntohl for conversion).
+     * @return IP in host byte order (application-readable).
      */
     uint32_t ip() const;
     
     /**
      * @brief ### Returns port number (host byte order).
      * 
-     * @return Port number as seen by application (already converted from network order).
+     * @return Port number in host byte order (application-readable).
      */
     uint16_t port() const;
     
