@@ -577,7 +577,7 @@ void Server::ping_leader() {
     std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
     if (!this->receive_server_packet(ping_packet, this->leader_addr, expected_types, TIMEOUT_MS, [this](const ServerPacket& packet, const SocketAddress& addr) {
         process_server_packet(packet, addr);
-        return;
+        return true;
     })) {
         // No response: start election
         std::cout << "No PING_LEADER_ACK received. Starting election..." << std::endl;
