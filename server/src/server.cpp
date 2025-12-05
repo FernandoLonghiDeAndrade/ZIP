@@ -471,15 +471,16 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     }
     if (new_server) {
         // Server is new, send new server sync to the other servers and add it to the list
-        this->servers.push_back(server_addr);
         ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(this->seq_number++, server_addr);
         for (auto server : servers) {
-            // Check to not send to itself neither to the new server
-            if (server.ip() != this->server_socket.ip() and server.ip() != server_addr.ip()) {
+            // Check to not send to itself
+            if (server.ip() != this->server_socket.ip()) {
                 std::cout << "DEBUG: Sending NEW_SERVER_SYNC to server ip: " << server.ip() << std::endl;
                 this->server_socket.send(&new_server_sync_packet, sizeof(ServerPacket), server);
             }
         }
+        // Add new server to the list
+        this->servers.push_back(server_addr);
     }
 
     if (cancel.load()) return; // Check if it should stop
