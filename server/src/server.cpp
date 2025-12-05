@@ -419,6 +419,7 @@ void Server::receive_leader_state(bool is_from_discovery) {
 void Server::handle_state_sync_request(const SocketAddress& server_addr) {
     if (this->server_socket.ip() != this->leader_addr.ip()) {
         // Not the leader: ignore state sync requests
+        std::cout << "DEBUG: Ignoring STATE_SYNC_REQUEST: not the leader." << std::endl;
         return;
     }
 
@@ -574,7 +575,10 @@ void Server::ping_leader() {
 
     std::cout << "Waiting for PING_LEADER_ACK from leader..." << std::endl;
     std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
-    if (!this->receive_server_packet(ping_packet, this->leader_addr, expected_types, TIMEOUT_MS)) {
+    if (!this->receive_server_packet(ping_packet, this->leader_addr, expected_types, TIMEOUT_MS, [this](const ServerPacket& packet, const SocketAddress& addr) {
+        process_server_packet(packet, addr);
+        return;
+    })) {
         // No response: start election
         std::cout << "No PING_LEADER_ACK received. Starting election..." << std::endl;
         start_election();
