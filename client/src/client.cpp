@@ -181,10 +181,13 @@ void Client::handle_server_responses() {
     while (true) {
         // Blocking receive: wait indefinitely for next packet from server
         client_socket.receive(&response_packet, sizeof(ClientPacket), sender_addr);
-        
-        // Fast path check: is this ACK for the current pending request?
-        // Uses atomic load WITHOUT mutex for performance (hot path)
-        if (response_packet.payload.reply.id == pending_ack_request_id.load()) {
+        if (response_packet.type == NEW_LEADER) {
+            // Update server address to new leader
+            std::cout << "New leader elected at " << response_packet.payload.new_leader.addr.ip_string() << "\n\n";
+            this->server_addr = response_packet.payload.new_leader.addr;
+        } else if (response_packet.payload.reply.id == pending_ack_request_id.load()) {
+            // Fast path check: is this ACK for the current pending request?
+            // Uses atomic load WITHOUT mutex for performance (hot path)
             {
                 // Acquire mutex to safely clear pending state
                 std::lock_guard<std::mutex> lock(pending_request_mutex);
@@ -213,11 +216,6 @@ void Client::handle_server_responses() {
                     break;
                 case ERROR_ACK:
                     std::cout << "Transaction failed: Server error.\n\n";
-                case NEW_LEADER:
-                    // Update server address to new leader
-                    std::cout << "New leader elected at " << response_packet.payload.new_leader.addr.ip_string() << std::endl;
-                    this->server_addr = response_packet.payload.new_leader.addr;
-                    break;
             }
         }
         // If request_id doesn't match: ignore packet (duplicate ACK from previous request or out-of-order)
