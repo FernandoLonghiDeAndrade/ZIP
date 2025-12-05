@@ -514,7 +514,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
 void Server::handle_new_server_sync(const ServerPacket& packet) {
     uint32_t seq_number = packet.payload.server.seq_number;
     
-    if (seq_number != ++this->seq_number) {
+    if (seq_number != this->seq_number++) {
         // Lost packets: request full state sync from leader
         request_leader_state();
         return;
