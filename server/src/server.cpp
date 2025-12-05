@@ -271,6 +271,20 @@ void Server::handle_transaction(const ClientPacket& packet, const SocketAddress&
 
     // Print transaction summary (uses updated stats from above)
     PrintUtils::print_request(src_client_ip, packet, false, num_transactions, total_transferred, total_balance);
+
+    // Send TRANSACTION_SYNC to other servers
+    ServerPacket transaction_sync_packet = ServerPacket::create_new_transaction_sync(
+        ++this->seq_number,
+        src_client_ip,
+        dest_client_ip,
+        packet.payload.request.value
+    );
+    for (auto server : servers) {
+        // Check to not send to itself
+        if (server.ip() != this->server_socket.ip()) {
+            this->server_socket.send(&transaction_sync_packet, sizeof(ServerPacket), server);
+        }
+    }
 }
 
 // ===== Server Packet Handlers =====
@@ -472,7 +486,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     }
     if (new_server) {
         // Server is new, send new server sync to the other servers and add it to the list
-        ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(this->seq_number++, server_addr);
+        ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(++this->seq_number, server_addr);
         std::cout << "DEBUG: New Server: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
         for (auto server : servers) {
             // Check to not send to itself
@@ -514,7 +528,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
 void Server::handle_new_server_sync(const ServerPacket& packet) {
     uint32_t seq_number = packet.payload.server.seq_number;
     
-    if (seq_number != this->seq_number++) {
+    if (seq_number != ++this->seq_number) {
         // Lost packets: request full state sync from leader
         request_leader_state();
         return;
