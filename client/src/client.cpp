@@ -180,11 +180,7 @@ void Client::handle_server_responses() {
 
     while (true) {
         // Blocking receive: wait indefinitely for next packet from server
-        // Socket is in blocking mode, so this doesn't spin CPU
-        int32_t bytes_received;
-        do {
-            bytes_received = client_socket.receive(&response_packet, sizeof(ClientPacket), sender_addr);
-        } while (bytes_received < 1); // Retry if receive fails (shouldn't happen in blocking mode)
+        client_socket.receive(&response_packet, sizeof(ClientPacket), sender_addr);
         
         // Fast path check: is this ACK for the current pending request?
         // Uses atomic load WITHOUT mutex for performance (hot path)
@@ -219,6 +215,7 @@ void Client::handle_server_responses() {
                     std::cout << "Transaction failed: Server error.\n\n";
                 case NEW_LEADER:
                     // Update server address to new leader
+                    std::cout << "New leader elected at " << response_packet.payload.new_leader.addr.ip_string() << std::endl;
                     this->server_addr = response_packet.payload.new_leader.addr;
                     break;
             }
