@@ -347,12 +347,12 @@ void Server::receive_leader_state(bool is_from_discovery) {
             if (response_packet.type == SERVER_INFO) {
                 // Store server address in buffer
                 SocketAddress server_addr = response_packet.payload.server.addr;
-                std::cout << "DEBUG: Received Server port: " << server_addr.port() << std::endl;
                 std::cout << "DEBUG: Received Server info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
                 if (server_addr.ip() == 0) {
                     // Skip invalid address (0.0.0.0)
                     continue;
                 }
+                std::cout << "DEBUG: Adding server to server list at " << server_addr.ip_string() << std::endl;
                 buffer_servers.push_back(server_addr);
             } else {
                 // Finished receiving server infos
@@ -476,6 +476,7 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
         for (auto server : servers) {
             // Check to not send to itself neither to the new server
             if (server.ip() != this->server_socket.ip() and server.ip() != server_addr.ip()) {
+                std::cout << "DEBUG: Sending NEW_SERVER_SYNC to server ip: " << server.ip() << std::endl;
                 this->server_socket.send(&new_server_sync_packet, sizeof(ServerPacket), server);
             }
         }
@@ -519,6 +520,7 @@ void Server::handle_new_server_sync(const ServerPacket& packet) {
 
     SocketAddress new_server_addr = packet.payload.server.addr;
 
+    std::cout << "Adding new server at " << new_server_addr.ip_string() << std::endl;
     this->servers.push_back(new_server_addr);
 }
 
