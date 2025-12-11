@@ -20,7 +20,7 @@ constexpr int32_t TIMEOUT_MS = 100;
  * 
  * Distributed Architecture:
  * - Leader-Backup model: One leader handles client requests, backups replicate state
- * - Leader election: Bully algorithm using IP address as priority (lower IP = higher priority)
+ * - Leader election: Bully algorithm using server age as priority (older servers = higher priority)
  * - State replication: Leader broadcasts all state changes to backup servers
  * - Failure detection: Backups ping leader periodically, trigger election on timeout
  * - Automatic failover: New leader elected when current leader fails
@@ -268,26 +268,27 @@ private:
      * 
      * Called when:
      * - Leader ping timeout (leader presumed dead)
-     * - This server has lower ID than current leader (during discovery)
+     * - This server has higher ID than current leader (during discovery)
      * 
      * Bully algorithm steps:
-     * 1. Send ELECTION_REQUEST to all servers with higher ID
+     * 1. Send ELECTION_REQUEST to all servers with lower ID (older servers)
      * 2. If any server responds ELECTION_REQUEST_ACK: wait for COORDINATOR
-     * 3. If no responses (all higher-ID servers down): become leader
+     * 3. If no responses (all older servers down): become leader
      * 4. Broadcast COORDINATOR message announcing new leadership
      * 
-     * Uses server IP as ID: lower IP = higher priority (older servers win).
+     * Priority system: Server ID = position in servers list (index 0 = highest priority).
+     * Older servers joined first, appear earlier in list, have higher election priority.
      */
     void start_election();
 
     /**
      * @brief ### Handles ELECTION_REQUEST from another server in Bully algorithm.
      * 
-     * If my ID > requester's ID:
+     * If my ID < requester's ID (I'm older):
      * - Send ELECTION_REQUEST_ACK (taking over election)
      * - Start my own election (I have higher priority)
      * 
-     * If my ID < requester's ID:
+     * If my ID > requester's ID (requester is older):
      * - Ignore (requester has higher priority, let them handle it)
      * 
      * @param server_addr Address of the server requesting election.

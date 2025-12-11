@@ -1,10 +1,13 @@
 # **ZIP (Zero-cost Instant Payment)**
 
-A multi-threaded UDP-based PIX-like transaction system demonstrating concurrent programming concepts: thread synchronization, reader-writer locks, and deadlock prevention.
+A distributed multi-threaded UDP-based PIX-like transaction system demonstrating concurrent and distributed programming concepts: leader election, state replication, fault tolerance, thread synchronization, reader-writer locks, and deadlock prevention.
 
 ## Features
 
-- **Cross-platform UDP** (Windows/Linux/macOS) with non-blocking sockets
+- **Distributed architecture** with leader-backup model and automatic failover
+- **Leader election** using Bully algorithm (age-based priority)
+- **State replication** across backup servers for fault tolerance
+- **Cross-platform UDP** (Windows/Linux/macOS) with timeout support
 - **Multi-threaded server** (one thread per request)
 - **Fine-grained locking** (per-client reader-writer locks)
 - **Stop-and-wait protocol** with automatic retransmission
@@ -24,27 +27,30 @@ ZIP/
 │
 ├── server/
 │   ├── include/
+│   │   ├── client_info.h         # Client state structure (balance, request tracking)
 │   │   ├── locked_map.h          # Thread-safe map with per-entry RW locks
-│   │   └── server.h              # Server class (multi-threaded request handling)
+│   │   ├── server_packet.h       # Server-to-server packet definitions
+│   │   └── server.h              # Distributed server (leader election + state replication)
 │   ├── src/
 │   │   └── server.cpp            # Server implementation
 │   └── main.cpp                  # Server entry point
 │
 ├── shared/
 │   ├── include/
-│   │   ├── packet.h              # Protocol packet definitions
+│   │   ├── client_packet.h       # Client-to-server packet definitions
 │   │   ├── print_utils.h         # Formatted console output
-│   │   └── udp_socket.h          # Cross-platform UDP wrapper
+│   │   ├── socket_address.h      # IP address wrapper (IPv4)
+│   │   └── udp_socket.h          # Cross-platform UDP wrapper with timeout
 │   └── src/
 │       ├── print_utils.cpp       # Timestamp + formatting
+│       ├── socket_address.cpp    # Address parsing and validation
 │       └── udp_socket.cpp        # Platform-specific socket code
 │
 ├── tests/
 │   ├── include/
-│   │   └── subprocess.h          # Subprocess class
-│   │   
-│   └── src/
-│   │   └── subprocess.cpp        # Instantiates and communicates with subprocesses
+│   │   └── subprocess.h          # Subprocess management class
+│   ├── src/
+│   │   └── subprocess.cpp        # Process instantiation and communication
 │   └── main.cpp                  # Test entry point
 │
 ├── CMakeLists.txt                # Build configuration
@@ -152,24 +158,35 @@ Example:
 
 ## Key Components
 
+### Distributed Server Architecture
+
+**Leader-Backup Model**: One leader processes client requests, multiple backups replicate state for fault tolerance.
+
+**Leader Election**: Bully algorithm with age-based priority (older servers = higher priority). Server age determined by position in cluster's server list. Automatic failover when leader fails.
+
+**State Replication**: Leader broadcasts all state changes (new clients, transactions) to backups. Backups maintain eventual consistency.
+
+**Failure Detection**: Backups ping leader every 100ms. Election triggered on timeout.
+
 ### LockedMap (`server/include/locked_map.h`)
 
 Thread-safe map with **per-entry reader-writer locks**. Enables concurrent reads and exclusive writes per entry, preventing contention between different clients.
 
 ### UDPSocket (`shared/include/udp_socket.h`)
 
-Cross-platform UDP wrapper with **thread-safe send/receive**. Handles platform differences (Winsock on Windows, BSD sockets on Unix).
+Cross-platform UDP wrapper with **timeout support using select()**. Handles platform differences (Winsock on Windows, BSD sockets on Unix). Includes broadcast loopback filtering via socket_id headers.
 
 ### Stop-and-Wait Protocol
 
-Client retransmits requests every **200ms** until receiving ACK. Server uses request IDs for **duplicate detection** (idempotency).
+Client retransmits requests every **100ms** until receiving ACK. Server uses request IDs for **duplicate detection** (idempotency).
 
 ## Concurrency Design
 
-- **Server**: Main thread listens, spawns detached worker threads per request
-- **Client**: Main thread sends requests, network thread handles responses
-- **Synchronization**: Mutex + condition variable for stop-and-wait
+- **Server**: Main thread listens, spawns detached worker threads per request, background thread for leader monitoring
+- **Client**: Main thread sends requests, network thread handles responses (ACKs + leader updates)
+- **Synchronization**: Mutex + condition variable for stop-and-wait, atomic flags for thread cancellation
 - **Deadlock Prevention**: Atomic pair operations lock in fixed order (lower IP first)
+- **State Replication**: Leader broadcasts changes, backups apply updates atomically with sequence numbers
 
 ## Troubleshooting
 
