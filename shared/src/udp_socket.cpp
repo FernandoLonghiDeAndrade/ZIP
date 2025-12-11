@@ -132,10 +132,6 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
             break;
         }
     }
-    
-    if (drain_count > 0) {
-        std::cout << "[DEBUG] Drained " << drain_count << " stale packets from socket buffer\n";
-    }
 
     return true;
 }

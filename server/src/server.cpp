@@ -42,7 +42,6 @@ void Server::discover_leader_server() {
     ServerPacket discovery_packet(STATE_SYNC_REQUEST);
 
     for (int attempt = 0; attempt < 3; attempt++) {
-        std::cout << "Broadcasting STATE_SYNC_REQUEST (attempt " << (attempt + 1) << "/3)..." << std::endl;
         server_socket.send(&discovery_packet, sizeof(ServerPacket), SocketAddress::broadcast(port));
 
         // Wait for response with timeout
@@ -51,9 +50,8 @@ void Server::discover_leader_server() {
         std::vector<ServerPacketType> expected_types = {STATE_SYNC_ACK};
 
         if (receive_server_packet(response_packet, leader_addr_received, expected_types, TIMEOUT_MS)) {
-
             // Received response
-            std::cout << "Discovered leader server at " << leader_addr_received.ip_string() << std::endl;
+            std::cout << "Discovered leader server at " << leader_addr_received.ip_string() << ":" << leader_addr_received.port() << "\n\n";
 
             // Set leader address and receive state
             this->leader_addr = leader_addr_received;
@@ -69,9 +67,6 @@ void Server::discover_leader_server() {
                 }
             }
             if (server_id < leader_id) {
-                std::cout << "DEBUG: This server id: " << server_id << std::endl;
-                std::cout << "DEBUG: Leader server id: " << leader_id << std::endl;
-                std::cout << "This server has a lower ID than the leader. Starting election..." << std::endl;
                 start_election();
             }
 
@@ -81,9 +76,9 @@ void Server::discover_leader_server() {
     }
 
     // If no leader discovered after 3 attempts, elect self as leader
-    std::cout << "No leader discovered after 3 attempts. Electing self as leader." << std::endl;
+    std::cout << "No leader discovered. Electing self as leader." << std::endl;
     leader_addr = this->server_socket.address();
-    std::cout << "Leader server is at " << leader_addr.ip_string() << std::endl;
+    std::cout << "Leader server is at " << leader_addr.ip_string() << ":" << leader_addr.port() << "\n\n";
     servers.push_back(this->server_socket.address());
 }
 
@@ -95,12 +90,6 @@ void Server::run_listening_loop() {
         // Non blocking receive with timeout
         int32_t bytes_received = server_socket.receive(packet_buffer, sizeof(ServerPacket), address, TIMEOUT_MS);
 
-        // DEBUG
-        for (auto server : servers) {
-            std::cout << "DEBUG: Known server: " << server.ip_string() << ":" << server.port() << std::endl;
-        }
-        std::cout << std::endl;
-
         if (bytes_received > 0) {
             // Determine if packet is from client or server based on first byte (packet type)
             if (packet_buffer[0] >= STATE_SYNC_REQUEST) {
@@ -108,19 +97,18 @@ void Server::run_listening_loop() {
                 process_server_packet(*(ServerPacket*)packet_buffer, address);
             } else {
                 // Client packet
-                std::thread(&Server::process_client_packet,
-                            this,
-                            ClientPacket(*reinterpret_cast<ClientPacket*>(packet_buffer)),
-                            SocketAddress(address))
-                    .detach();
-                //std::thread(&Server::process_client_packet, this, *(ClientPacket*)packet_buffer, address).detach();
+                std::thread(
+                    &Server::process_client_packet,
+                    this,
+                    ClientPacket(*reinterpret_cast<ClientPacket*>(packet_buffer)),
+                    SocketAddress(address)
+                ).detach();
             }
         }
         
         // Check if this server is leader
         if (this->server_socket.ip() != this->leader_addr.ip()) {
             // Not leader: ping leader
-            std::cout << "\nPinging leader server at " << this->leader_addr.ip_string() << std::endl;
             ping_leader();
         }
     }
@@ -132,11 +120,11 @@ void Server::process_client_packet(const ClientPacket& packet, const SocketAddre
     // Dispatch to appropriate handler based on packet type
     switch (packet.type) {
         case CLIENT_DISCOVERY:
-            std::cout << "\nReceived CLIENT_DISCOVERY from " << client_addr.ip_string() << std::endl;
+            std::cout << "Received CLIENT_DISCOVERY from " << client_addr.ip_string() << ":" << client_addr.port() << "\n\n";
             handle_client_discovery(client_addr);
             break;
         case TRANSACTION_REQUEST:
-            std::cout << "\nReceived TRANSACTION_REQUEST from " << client_addr.ip_string() << std::endl;
+            std::cout << "Received TRANSACTION_REQUEST from " << client_addr.ip_string() << ":" << client_addr.port() << "\n\n";
             handle_transaction(packet, client_addr);
             break;
         // Other packet types (ACKs) are ignored (server doesn't expect ACKs from clients)
@@ -149,8 +137,6 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
         // Not the leader: ignore discovery requests
         return;
     }
-
-    std::cout << "DEBUG: Registering new client at " << client_addr.ip_string() << ":" << client_addr.port() << std::endl;
 
     // Attempt to register new client (insert returns false if already exists)
     if (clients.insert(client_addr.ip(), ClientInfo(client_addr.port()))) {
@@ -169,7 +155,6 @@ void Server::handle_client_discovery(const SocketAddress& client_addr) {
         for (const auto& server : servers) {
             // Don't send to self
             if (server.ip() != this->server_socket.ip()) {
-                std::cout << "DEBUG: Sending NEW_CLIENT_SYNC to " << server.ip_string() << std::endl;
                 server_socket.send(&new_client_packet, sizeof(ServerPacket), server);
             }
         }
@@ -310,31 +295,31 @@ void Server::process_server_packet(const ServerPacket& packet, const SocketAddre
     // Dispatch to appropriate handler based on packet type
     switch (packet.type) {
         case STATE_SYNC_REQUEST:
-            std::cout << "\nReceived STATE_SYNC_REQUEST from " << server_addr.ip_string() << std::endl;
+            std::cout << "\nReceived STATE_SYNC_REQUEST from " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
             handle_state_sync_request(server_addr);
             break;
         case NEW_SERVER_SYNC:
-            std::cout << "\nReceived NEW_SERVER_SYNC from " << server_addr.ip_string() << std::endl;
+            std::cout << "\nReceived NEW_SERVER_SYNC from " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
             handle_new_server_sync(packet);
             break;
         case NEW_CLIENT_SYNC:
-            std::cout << "\nReceived NEW_CLIENT_SYNC from " << server_addr.ip_string() << std::endl;
+            std::cout << "\nReceived NEW_CLIENT_SYNC from " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
             handle_new_client_sync(packet);
             break;
         case NEW_TRANSACTION_SYNC:
-            std::cout << "\nReceived NEW_TRANSACTION_SYNC from " << server_addr.ip_string() << std::endl;
+            std::cout << "\nReceived NEW_TRANSACTION_SYNC from " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
             handle_new_transaction_sync(packet);
             break;
         case PING_LEADER:
-            std::cout << "\nReceived PING_LEADER from " << server_addr.ip_string() << std::endl;
+            //std::cout << "\nReceived PING_LEADER from " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
             handle_ping_leader(server_addr);
             break;
         case ELECTION_REQUEST:
-            std::cout << "\nReceived ELECTION_REQUEST from " << server_addr.ip_string() << std::endl;
+            std::cout << "\nReceived ELECTION_REQUEST from " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
             handle_election_request(server_addr);
             break;
         case COORDINATOR:
-            std::cout << "\nReceived COORDINATOR from " << server_addr.ip_string() << std::endl;
+            std::cout << "\nReceived COORDINATOR from " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
             handle_coordinator(server_addr);
             break;
     }
@@ -382,12 +367,10 @@ void Server::receive_leader_state(bool is_from_discovery) {
             if (response_packet.type == SERVER_INFO) {
                 // Store server address in buffer
                 SocketAddress server_addr = response_packet.payload.server.addr;
-                std::cout << "DEBUG: Received Server Info: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
                 if (server_addr.ip() == 0) {
                     // Skip invalid address (0.0.0.0)
                     continue;
                 }
-                std::cout << "DEBUG: Adding server to server list at " << server_addr.ip_string() << std::endl;
                 buffer_servers.push_back(server_addr);
             } else {
                 // Finished receiving server infos
@@ -454,7 +437,6 @@ void Server::receive_leader_state(bool is_from_discovery) {
 void Server::handle_state_sync_request(const SocketAddress& server_addr) {
     if (this->server_socket.ip() != this->leader_addr.ip()) {
         // Not the leader: ignore state sync requests
-        std::cout << "DEBUG: Ignoring STATE_SYNC_REQUEST: not the leader." << std::endl;
         return;
     }
 
@@ -508,11 +490,9 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     if (new_server) {
         // Server is new, send new server sync to the other servers and add it to the list
         ServerPacket new_server_sync_packet = ServerPacket::create_new_server_sync(++this->seq_number, server_addr);
-        std::cout << "DEBUG: New Server: " << server_addr.ip_string() << ":" << server_addr.port() << std::endl;
         for (auto server : servers) {
             // Check to not send to itself
             if (server.ip() != this->server_socket.ip()) {
-                std::cout << "DEBUG: Sending NEW_SERVER_SYNC to server: " << server.ip_string() << ":" << server.port() << std::endl;
                 this->server_socket.send(&new_server_sync_packet, sizeof(ServerPacket), server);
             }
         }
@@ -527,7 +507,6 @@ void Server::send_state_sync(const SocketAddress& server_addr, std::atomic<bool>
     // Send each server's info to the other server
     for (auto server : servers) {
         ServerPacket server_info_packet = ServerPacket::create_server_info(sync_seq++, server);
-        std::cout << "DEBUG: Sending Server Info: " << server.ip_string() << ":" << server.port() << std::endl;
         this->server_socket.send(&server_info_packet, sizeof(ServerPacket), server_addr);
         if (cancel.load()) return; // Check if it should stop
     }
@@ -557,7 +536,7 @@ void Server::handle_new_server_sync(const ServerPacket& packet) {
 
     SocketAddress new_server_addr = packet.payload.server.addr;
 
-    std::cout << "Adding new server at " << new_server_addr.ip_string() << std::endl;
+    std::cout << "Adding new server at " << new_server_addr.ip_string() << ":" << new_server_addr.port() << "\n\n";
     this->servers.push_back(new_server_addr);
 }
 
@@ -575,6 +554,7 @@ void Server::handle_new_client_sync(const ServerPacket& packet) {
 
     this->clients.insert(client_ip, client_info);
     this->total_balance += CLIENT_INITIAL_BALANCE;
+    std::cout << "Adding new client at " << SocketAddress(client_ip).ip_string() << ":" << client_info.port << "\n\n";
 }
 
 void Server::handle_new_transaction_sync(const ServerPacket& packet) {
@@ -600,6 +580,7 @@ void Server::handle_new_transaction_sync(const ServerPacket& packet) {
 
     this->num_transactions++;
     this->total_transferred += value;
+    std::cout << "Processed transaction sync: " << SocketAddress(src_ip).ip_string() << " -> " << SocketAddress(dest_ip).ip_string() << " : " << value << "\n\n";
 }
 
 // ===== Leader Election =====
@@ -608,18 +589,14 @@ void Server::ping_leader() {
     ServerPacket ping_packet(PING_LEADER);
     this->server_socket.send(&ping_packet, sizeof(ServerPacket), this->leader_addr);
 
-    std::cout << "Waiting for PING_LEADER_ACK from leader..." << std::endl;
     std::vector<ServerPacketType> expected_types = {PING_LEADER_ACK};
     if (!this->receive_server_packet(ping_packet, this->leader_addr, expected_types, TIMEOUT_MS, [this](const ServerPacket& packet, const SocketAddress& addr) {
         process_server_packet(packet, addr);
         return true;
     })) {
         // No response: start election
-        std::cout << "No PING_LEADER_ACK received. Starting election..." << std::endl;
         start_election();
     }
-    std::cout << "Received PING_LEADER_ACK from leader." << std::endl;
-    return;
 }
 
 void Server::handle_ping_leader(const SocketAddress& server_addr) {
@@ -629,7 +606,6 @@ void Server::handle_ping_leader(const SocketAddress& server_addr) {
 
 void Server::start_election() {
     // Send ELECTION_REQUEST to all servers with lower IDs (older servers)
-    std::cout << "Starting election..." << std::endl;
     for (auto server : servers) {
         if (server.ip() == this->server_socket.ip()) {
             // Reached self: stop sending requests
@@ -657,7 +633,7 @@ void Server::start_election() {
         // Received ACK: another server will take over as leader
 
         // Wait for COORDINATOR message
-        std::vector<ServerPacketType> expected_types = {ELECTION_REQUEST, COORDINATOR};
+        std::vector<ServerPacketType> expected_types = {COORDINATOR};
         if (this->receive_server_packet(response_packet, addr, expected_types, TIMEOUT_MS, [this](const ServerPacket& packet, const SocketAddress& addr) {
             // Handle ELECTION_REQUEST packets while waiting for COORDINATOR
             if (packet.type == ELECTION_REQUEST) {
@@ -668,6 +644,7 @@ void Server::start_election() {
         })) {
             // Received COORDINATOR: Update leader address
             this->leader_addr = addr;
+            std::cout << "New leader elected at " << this->leader_addr.ip_string() << ":" << this->leader_addr.port() << "\n\n";
         } else {
             // No COORDINATOR received: start election again
             start_election();
@@ -676,14 +653,13 @@ void Server::start_election() {
         // No ELECTION_REQUEST_ACK received: elect self as leader
 
         std::cout << "No ELECTION_REQUEST_ACK received. Electing self as leader." << std::endl;
-
         this->leader_addr = this->server_socket.address();
+        std::cout << "Leader server is at " << this->leader_addr.ip_string() << ":" << this->leader_addr.port() << "\n\n";
         
         // Send coordinator message to all other servers (exclude self)
         ServerPacket coordinator_packet(COORDINATOR);
         for (auto server : servers) {
             if (server.ip() != this->server_socket.ip()) {
-                std::cout << "DEBUG: Sending COORDINATOR to server at " << server.ip_string() << std::endl;
                 this->server_socket.send(&coordinator_packet, sizeof(ServerPacket), server);
             }
         }
@@ -711,6 +687,7 @@ void Server::handle_coordinator(const SocketAddress& server_addr) {
         if (server.ip() == server_addr.ip()) {
             // New leader's ID is smaller
             this->leader_addr = server_addr;
+            std::cout << "New leader elected at " << this->leader_addr.ip_string() << ":" << this->leader_addr.port() << "\n\n";
             return;
         } else if (server.ip() == this->server_socket.ip()) {
             // My ID is smaller

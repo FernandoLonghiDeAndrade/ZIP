@@ -183,8 +183,9 @@ void Client::handle_server_responses() {
         client_socket.receive(&response_packet, sizeof(ClientPacket), sender_addr);
         if (response_packet.type == NEW_LEADER) {
             // Update server address to new leader
-            std::cout << "New leader elected at " << response_packet.payload.new_leader.addr.ip_string() << "\n\n";
-            this->server_addr = response_packet.payload.new_leader.addr;
+            SocketAddress new_leader_addr = response_packet.payload.new_leader.addr;
+            this->server_addr = new_leader_addr;
+            //std::cout << "New leader elected at " << new_leader_addr.ip_string() << ":" << new_leader_addr.port() << "\n\n";
         } else if (response_packet.payload.reply.id == pending_ack_request_id.load()) {
             // Fast path check: is this ACK for the current pending request?
             // Uses atomic load WITHOUT mutex for performance (hot path)
