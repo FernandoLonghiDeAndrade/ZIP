@@ -70,13 +70,18 @@ private:
     void run_user_input_loop();
 
     /**
-     * @brief ### [Network thread] Listens for server responses and processes ACKs.
+     * @brief ### [Network thread] Listens for server responses and processes ACKs and leader updates.
      * 
      * Runs in infinite loop:
-     * 1. Blocks on address.receive() waiting for packets
-     * 2. Checks if response matches pending_ack_request_id
-     * 3. If match: stops retransmission, prints result, notifies main thread
-     * 4. If no match: ignores packet (duplicate or out-of-order)
+     * 1. Blocks on client_socket.receive() waiting for packets
+     * 2. If NEW_LEADER packet: updates server_addr to new leader (no notification to main thread)
+     * 3. If ACK packet and matches pending_ack_request_id:
+     *    - Stops retransmission (clears pending_ack_request_id)
+     *    - Prints transaction result based on ACK type
+     *    - Notifies main thread via ack_received_cv
+     * 4. If ACK packet doesn't match: ignores packet (duplicate or out-of-order)
+     * 
+     * Leader election handling: transparent to user, automatically redirects future requests.
      */
     void handle_server_responses();
 
