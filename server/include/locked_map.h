@@ -102,6 +102,23 @@ struct Entry {
 template<typename K, typename V>
 class LockedMap {
 public:
+    auto begin() {
+        return data.begin();
+    }
+
+    auto end() {
+        return data.end();
+    }
+    
+    LockedMap& operator=(const LockedMap& other) {
+        if (this != &other) {
+            std::lock_guard<std::mutex> lock_this(map_mutex);
+            std::lock_guard<std::mutex> lock_other(other.map_mutex);
+            data = other.data;
+        }
+        return *this;
+    }
+
     /**
      * @brief ### Inserts a new key-value pair if key doesn't exist (idempotent).
      * 
@@ -194,7 +211,7 @@ private:
     
     /// Protects map structure modifications (insert, find operations)
     /// NOT used for protecting individual entry values (entries have own locks)
-    std::mutex map_mutex;
+    mutable std::mutex map_mutex;
 
     /**
      * @brief Helper to safely retrieve Entry shared_ptr (internal use only).

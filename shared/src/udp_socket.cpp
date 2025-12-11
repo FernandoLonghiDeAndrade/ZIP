@@ -1,12 +1,14 @@
 #include "udp_socket.h"
 #include <cstring>
+#include <chrono>
+#include <iostream>
 
 #ifdef _WIN32
     #include <ws2tcpip.h>
     
     /**
-     * Windows-specific: Winsock2 requires WSAStartup() before any socket operations.
-     * This is called once per process (not per socket).
+     * Windows-specific: Winsock2 requires WSAStartup() before any address operations.
+     * This is called once per process (not per address).
      * Thread-safe via static bool guard (potential race on first call, but benign).
      */
     static bool winsock_initialized = false;
@@ -35,89 +37,100 @@
     #define get_socket_error() errno
 #endif
 
-// ===== SocketAddress implementation =====
-
-SocketAddress::SocketAddress() {
-    std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
+uint32_t UDPSocket::ip() const {
+    return address().ip();
 }
 
-SocketAddress::SocketAddress(const std::string& ip, uint16_t port) {
-    std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+uint16_t UDPSocket::port() const {
+    return address().port();
 }
 
-SocketAddress::SocketAddress(uint32_t ip_network_byte_order, uint16_t port) {
-    std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = ip_network_byte_order;
-}
-
-SocketAddress::SocketAddress(const struct sockaddr_in& addr) : addr(addr) {}
-
-SocketAddress SocketAddress::broadcast(uint16_t port) {
-    return SocketAddress("255.255.255.255", port);
-}
-
-std::string SocketAddress::ip_string() const {
-    char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, ip_str, INET_ADDRSTRLEN);
-    return std::string(ip_str);
-}
-
-uint32_t SocketAddress::ip() const {
-    return addr.sin_addr.s_addr;
-}
-
-uint16_t SocketAddress::port() const {
-    return ntohs(addr.sin_port);
-}
-
-bool SocketAddress::is_valid() const {
-    return addr.sin_addr.s_addr != 0;
-}
-
-// ===== Socket initialization =====
-
-bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
-    // Windows: Initialize Winsock library (process-wide, idempotent)
-    // Linux: No-op
-    init_winsock();
-    
-    // Create UDP socket (AF_INET = IPv4, SOCK_DGRAM = UDP)
-    sock_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+SocketAddress UDPSocket::address() const {
     if (sock_fd == INVALID_SOCKET_VALUE) {
-        return false;
+        return SocketAddress();
     }
 
-    // Set non-blocking mode (receive returns immediately if no data)
-    // Windows: ioctlsocket with FIONBIO
-    // Linux: fcntl with O_NONBLOCK
-    set_nonblocking(sock_fd);
-
-    // Enable broadcast capability if requested (required for 255.255.255.255)
-    // Without this, sendto() to broadcast address fails with permission error
-    if (is_broadcast) {
-        int broadcast_enable = 1;
-        if (setsockopt(sock_fd, SOL_SOCKET, SO_BROADCAST, 
-                      (const char*)&broadcast_enable, sizeof(broadcast_enable)) < 0) {
-            close_socket();
-            return false;
+    struct sockaddr_in local_addr;
+    socklen_t addr_len = sizeof(local_addr);
+    if (getsockname(sock_fd, (struct sockaddr*)&local_addr, &addr_len) < 0) {
+        return SocketAddress();
+    }
+    
+    if (local_addr.sin_addr.s_addr == INADDR_ANY) {
+        int tmp_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (tmp_fd != INVALID_SOCKET_VALUE) {
+            struct sockaddr_in remote{};
+            remote.sin_family = AF_INET;
+            remote.sin_port = htons(53);
+            if (inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr) == 1) {
+                connect(tmp_fd, (struct sockaddr*)&remote, sizeof(remote));
+                struct sockaddr_in outgoing{};
+                socklen_t len = sizeof(outgoing);
+                if (getsockname(tmp_fd, (struct sockaddr*)&outgoing, &len) == 0) {
+                    local_addr.sin_addr = outgoing.sin_addr;
+                }
+            }
+            close_socket_impl(tmp_fd);
         }
     }
+    
+    return SocketAddress(local_addr);
+}
 
-    // Bind socket to port and all local interfaces (0.0.0.0)
+bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
+    init_winsock();
+    
+    socket_id = static_cast<uint32_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count() ^ port
+    );
+    
+    sock_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock_fd == INVALID_SOCKET_VALUE) return false;
+
+    if (is_broadcast) {
+        int broadcast_enable = 1;
+        setsockopt(sock_fd, SOL_SOCKET, SO_BROADCAST, (const char*)&broadcast_enable, sizeof(broadcast_enable));
+    }
+
     struct sockaddr_in bind_addr {};
     bind_addr.sin_family = AF_INET;
-    bind_addr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 = listen on all interfaces
-    bind_addr.sin_port = htons(port);        // Convert to network byte order
+    bind_addr.sin_port = htons(port);
+    bind_addr.sin_addr.s_addr = INADDR_ANY;
 
     if (bind(sock_fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr)) < 0) {
         close_socket();
-        return false;  // Port already in use or insufficient permissions
+        return false;
+    }
+
+    // Clear socket buffer: drain all pending packets using non-blocking receive
+    char drain_buffer[65536];
+    struct sockaddr_in drain_addr;
+    socklen_t addr_len;
+    int drain_count = 0;
+    
+    while (true) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sock_fd, &read_fds);
+        
+        struct timeval tv = {0, 0};  // timeout_ms = 0 → non-blocking
+        
+        #ifdef _WIN32
+            int select_result = select(0, &read_fds, nullptr, nullptr, &tv);
+        #else
+            int select_result = select(sock_fd + 1, &read_fds, nullptr, nullptr, &tv);
+        #endif
+        
+        if (select_result <= 0) break;  // No more packets or error
+        
+        addr_len = sizeof(drain_addr);
+        ssize_t n = recvfrom(sock_fd, drain_buffer, sizeof(drain_buffer), 0,
+                            (struct sockaddr*)&drain_addr, &addr_len);
+        if (n > 0) {
+            drain_count++;
+        } else {
+            break;
+        }
     }
 
     return true;
@@ -126,71 +139,105 @@ bool UDPSocket::initialize(uint16_t port, bool is_broadcast) {
 // ===== Send data =====
 
 bool UDPSocket::send(const void* data, size_t size, const SocketAddress& dest_addr) {
-    // Validate input parameters
-    if (!data || size == 0 || sock_fd == INVALID_SOCKET_VALUE) {
-        return false;
-    }
+    if (!data || size == 0 || sock_fd == INVALID_SOCKET_VALUE) return false;
 
-    // Serialize sends (only one thread can send at a time)
-    // Note: Doesn't block receives (separate mutex)
     std::lock_guard<std::mutex> lock(send_mutex);
 
-    // Send UDP datagram to destination address
-    // Windows expects char* cast, POSIX accepts void* directly
+    // Prepend socket_id to data (4 bytes header + original data)
+    uint8_t send_buffer[sizeof(socket_id) + size];
+    memcpy(send_buffer, &socket_id, sizeof(socket_id));
+    memcpy(send_buffer + sizeof(socket_id), data, size);
+
     const struct sockaddr_in& native_addr = dest_addr.native();
-    ssize_t sent_bytes = sendto(sock_fd, (const char*)data, size, 0, 
+    ssize_t sent_bytes = sendto(sock_fd, (const char*)send_buffer, sizeof(send_buffer), 0, 
                                (const struct sockaddr*)&native_addr, sizeof(native_addr));
     
-    // Verify all bytes were sent (should always be true for UDP, or fails completely)
-    // UDP is atomic: either entire datagram is sent, or error occurs
-    return sent_bytes == static_cast<ssize_t>(size);
+    // Return true if all bytes sent (including header)
+    return sent_bytes == static_cast<ssize_t>(sizeof(send_buffer));
 }
 
 // ===== Receive data =====
 
-int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr) {
-    // Validate input parameters
-    if (!buffer || size == 0 || sock_fd == INVALID_SOCKET_VALUE) {
-        return -1;
-    }
-
-    // Serialize receives (only one thread can receive at a time)
-    // Note: Doesn't block sends (separate mutex)
+int32_t UDPSocket::receive(void* buffer, size_t size, SocketAddress& sender_addr, int32_t timeout_ms) {  
+    if (!buffer || size == 0 || sock_fd == INVALID_SOCKET_VALUE) return -1;
+    
     std::lock_guard<std::mutex> lock(receive_mutex);
     
-    // Receive UDP datagram from any sender (non-blocking)
-    struct sockaddr_in native_addr;
-    socklen_t addr_len = sizeof(native_addr);
-    ssize_t received_bytes = recvfrom(sock_fd, (char*)buffer, size, 0, 
-                                     (struct sockaddr*)&native_addr, &addr_len);
+    // Track absolute timeout only for timed operations
+    auto start_time = (timeout_ms >= 0) ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     
-    if (received_bytes < 0) {
-        int err = get_socket_error();
-        if (is_wouldblock(err)) {
-            // No data available (non-blocking mode, not an error)
+    while (true) {  // Loop to skip loopback packets
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sock_fd, &read_fds);
+
+        struct timeval tv, *tv_ptr = nullptr;
+        if (timeout_ms >= 0) {
+            // Timed operation: calculate remaining timeout
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time).count();
+            int32_t remaining_ms = timeout_ms - static_cast<int32_t>(elapsed);
+
+            // If timeout already expired, return immediately
+            if (remaining_ms <= 0) return 0;
+            
+            tv.tv_sec = remaining_ms / 1000;
+            tv.tv_usec = (remaining_ms % 1000) * 1000;
+            tv_ptr = &tv;
+        }
+        // For timeout_ms < 0: tv_ptr remains nullptr = blocking operation
+        
+        int select_result;
+        #ifdef _WIN32
+            select_result = select(0, &read_fds, nullptr, nullptr, tv_ptr);
+        #else
+            select_result = select(sock_fd + 1, &read_fds, nullptr, nullptr, tv_ptr);
+        #endif
+        
+        // Handle select results properly
+        if (select_result < 0) {
+            return -1;  // Error occurred
+        } else if (select_result == 0) {
+            // Timeout occurred - only possible when timeout_ms >= 0
             return 0;
         }
-        // Real error (socket closed, network error, etc.)
-        return -1;
+        // select_result > 0: data is available
+        
+        // Receive into temporary buffer (extract socket_id header)
+        uint8_t recv_buffer[sizeof(socket_id) + size];
+        struct sockaddr_in native_addr;
+        socklen_t addr_len = sizeof(native_addr);
+        ssize_t bytes = recvfrom(sock_fd, (char*)recv_buffer, sizeof(recv_buffer), 0, 
+                                (struct sockaddr*)&native_addr, &addr_len);
+        
+        // Packet must contain at least the socket_id header
+        if (bytes < static_cast<ssize_t>(sizeof(socket_id))) return -1;
+        
+        // Extract sender's socket_id from packet header
+        uint32_t sender_socket_id;
+        memcpy(&sender_socket_id, recv_buffer, sizeof(socket_id));
+        
+        // Filter loopback: ignore packets from same socket_id (own broadcasts)
+        if (sender_socket_id == socket_id) {
+            continue;  // Skip and wait for next packet
+        }
+        
+        // Valid packet: copy payload (without header) to user buffer
+        size_t payload_size = bytes - sizeof(socket_id);
+        size_t copy_size = std::min(payload_size, size); // Prevent buffer overflow
+        memcpy(buffer, recv_buffer + sizeof(socket_id), copy_size);
+        sender_addr = SocketAddress(native_addr);
+        return static_cast<int32_t>(copy_size);
     }
-    
-    // Update sender address with received packet source
-    sender_addr = SocketAddress(native_addr);
-    
-    // Return number of bytes received (UDP datagram size)
-    // Note: If buffer too small, datagram is truncated and excess data is lost
-    return static_cast<int32_t>(received_bytes);
 }
 
-// ===== Close socket =====
+// ===== Close address =====
 
 void UDPSocket::close_socket() {
-    // Acquire send_mutex to prevent concurrent send operations during close
-    // (receive_mutex not needed since closing invalidates socket for both)
     std::lock_guard<std::mutex> lock(send_mutex);
     
     if (sock_fd != INVALID_SOCKET_VALUE) {
-        close_socket_impl(sock_fd);         // Platform-specific close function
-        sock_fd = INVALID_SOCKET_VALUE;     // Mark as closed (prevents double-close)
+        close_socket_impl(sock_fd);
+        sock_fd = INVALID_SOCKET_VALUE;
     }
 }
